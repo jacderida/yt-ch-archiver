@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import os
 import sqlite3
 import sys
@@ -8,10 +9,10 @@ from googleapiclient.discovery import build
 
 
 class Video:
-    def __init__(self, id, title, is_downloaded):
+    def __init__(self, id, title, saved_path):
         self.id = id
         self.title = title
-        self.is_downloaded = is_downloaded
+        self.saved_path = saved_path
 
     @staticmethod
     def from_search_response_item(youtube, item):
@@ -25,14 +26,78 @@ class Video:
     def from_row(row):
         id = row[0]
         title = row[2]
-        is_downloaded = row[3]
-        return Video(id, title, is_downloaded)
+        saved_path = row[3]
+        return Video(id, title, saved_path)
 
 
-def main():
-    api_key = os.getenv("YT_CH_ARCHIVER_API_KEY")
-    channel_id = "UCtMf006J-WL-7r1T6guszjw"
-    youtube = build("youtube", "v3", developerKey=api_key)
+def get_args():
+    parser = argparse.ArgumentParser(description="YouTube Channel Archiver")
+    subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
+    list_parser = subparsers.add_parser("list", help="List all videos for a channel")
+    list_parser.add_argument(
+        "channel_id",
+        type=str,
+        help="The ID of the channel whose videos you want to list",
+    )
+    subparsers.add_parser(
+        "list-channels", help="List all the channels that have been used"
+    )
+    return parser.parse_args()
+
+
+def get_channel_name(youtube, cursor, channel_id):
+    print(f"Using channel_id: {channel_id}")
+    cursor.execute("SELECT name FROM channels WHERE id = ?", (channel_id,))
+    channel_name = cursor.fetchone()
+    if channel_name:
+        return (channel_name[0], True)
+    channel_response = youtube.channels().list(part="snippet", id=channel_id).execute()
+    channel_name = channel_response["items"][0]["snippet"]["title"]
+    cursor.execute(
+        """
+    INSERT OR IGNORE INTO channels (id, name)
+    VALUES (?, ?)
+    """,
+        (channel_id, channel_name),
+    )
+    return (channel_name, False)
+
+
+def create_database():
+    if "HOME" in os.environ:
+        app_data_path = os.path.join(os.environ["HOME"], ".local", "yt-ch-archiver")
+    elif "APPDATA" in os.environ:
+        app_data_path = os.path.join(os.environ["APPDATA"], "yt-ch-archiver")
+    else:
+        raise Exception("Could not find home directory")
+    if not os.path.exists(app_data_path):
+        os.makedirs(app_data_path)
+    database_path = os.path.join(app_data_path, "videos.db")
+    conn = sqlite3.connect(database_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS channels (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+    )
+    """
+    )
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS videos (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        saved_path TEXT NULL,
+        FOREIGN KEY (channel_id) REFERENCES channels (id)
+    )
+    """
+    )
+    return (conn, cursor)
+
+
+def process_list_command(youtube, channel_id):
     (conn, cursor) = create_database()
     (channel_name, channel_is_cached) = get_channel_name(youtube, cursor, channel_id)
 
@@ -80,56 +145,32 @@ def main():
         print(f"{video.id}: {video.title}")
 
 
-def get_channel_name(youtube, cursor, channel_id):
-    print(f"channel_id: {channel_id}")
-    cursor.execute("SELECT name FROM channels WHERE id = ?", (channel_id,))
-    channel_name = cursor.fetchone()
-    if channel_name:
-        return (channel_name[0], True)
-    channel_response = youtube.channels().list(part="snippet", id=channel_id).execute()
-    channel_name = channel_response["items"][0]["snippet"]["title"]
-    cursor.execute(
-        """
-    INSERT OR IGNORE INTO channels (id, name)
-    VALUES (?, ?)
-    """,
-        (channel_id, channel_name),
-    )
-    return (channel_name, False)
+def process_list_channel_command(youtube):
+    (conn, cursor) = create_database()
+    cursor.execute("SELECT * FROM channels")
+    rows = cursor.fetchall()
+    for row in rows:
+        id = row[0]
+        name = row[1]
+        print(f"{id}: {name}")
+    cursor.close()
+    conn.close()
 
 
-def create_database():
-    if "HOME" in os.environ:
-        app_data_path = os.path.join(os.environ["HOME"], ".local", "yt-ch-archiver")
-    elif "APPDATA" in os.environ:
-        app_data_path = os.path.join(os.environ["APPDATA"], "yt-ch-archiver")
-    else:
-        raise Exception("Could not find home directory")
-    if not os.path.exists(app_data_path):
-        os.makedirs(app_data_path)
-    database_path = os.path.join(app_data_path, "videos.db")
-    conn = sqlite3.connect(database_path)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS channels (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL
-    )
-    """
-    )
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS videos (
-        id TEXT PRIMARY KEY,
-        channel_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        downloaded BOOLEAN DEFAULT 0,
-        FOREIGN KEY (channel_id) REFERENCES channels (id)
-    )
-    """
-    )
-    return (conn, cursor)
+def main():
+    api_key = os.getenv("YT_CH_ARCHIVER_API_KEY")
+    if not api_key:
+        print(
+            "The YT_CH_ARCHIVER_API_KEY environment variable must be set with your API key"
+        )
+        return 1
+    args = get_args()
+    youtube = build("youtube", "v3", developerKey=api_key)
+    if args.subcommand == "list":
+        process_list_command(youtube, args.channel_id)
+    elif args.subcommand == "list-channels":
+        process_list_channel_command(youtube)
+    return 0
 
 
 if __name__ == "__main__":
