@@ -1,6 +1,6 @@
 # YouTube Channel Archiver
 
-This is basic utility that uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) and the [YouTube Data API](https://developers.google.com/youtube/v3/) to archive the contents of YouTube channel.
+This is a simple utility that uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) and the [YouTube Data API](https://developers.google.com/youtube/v3/) to archive the contents of a YouTube channel.
 
 It uses a SQLite database to cache channel information and avoid hitting the YouTube API as much as possible.
 
@@ -14,11 +14,14 @@ Set a path for downloading the videos with the `YT_CH_ARCHIVER_ROOT_PATH` enviro
 
 ## Downloading Channel Videos
 
-You need to obtain the ID of the channel. This is *not* just the name of the channel. Unfortunately YouTube don't surface the ID anywhere on the UI. [See here](https://mixedanalytics.com/blog/find-a-youtube-channel-id/) for some ways you can get it.
-
-When you have the ID, first get the list of all the videos for the channel by running this command:
+First get the list of all the videos for the channel by running this command:
 ```
-./app.py list <channel-id>
+./app.py list <channel-name>
+```
+
+Now get the ID of the channel either from the output of the previous command or by running:
+```
+./app.py list-channels
 ```
 
 Now download them:

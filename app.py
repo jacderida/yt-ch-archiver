@@ -46,9 +46,9 @@ def get_args():
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
     list_parser = subparsers.add_parser("list", help="List all videos for a channel")
     list_parser.add_argument(
-        "channel_id",
+        "channel_name",
         type=str,
-        help="The ID of the channel whose videos you want to list",
+        help="The name of the channel whose videos you want to list",
     )
     subparsers.add_parser(
         "list-channels", help="List all the channels that have been used"
@@ -84,14 +84,22 @@ def get_channel_name_from_db(cursor, channel_id):
     return channel_name[0]
 
 
-def get_channel_name(youtube, cursor, channel_id):
-    print(f"Using channel_id: {channel_id}")
-    cursor.execute("SELECT name FROM channels WHERE id = ?", (channel_id,))
-    channel_name = cursor.fetchone()
-    if channel_name:
-        return (channel_name[0], True)
-    channel_response = youtube.channels().list(part="snippet", id=channel_id).execute()
-    channel_name = channel_response["items"][0]["snippet"]["title"]
+def get_channel_info(youtube, cursor, channel_name):
+    print(f"Obtaining channel info for {channel_name}")
+    cursor.execute("SELECT id FROM channels WHERE name = ?", (channel_name,))
+    result = cursor.fetchone()
+    if result:
+        channel_id = result[0]
+        print(f"{channel_name} is in the cache")
+        print(f"The channel ID for {channel_name} is {channel_id}")
+        return (channel_id, True)
+    request = youtube.search().list(
+        part="snippet", type="channel", q=channel_name, maxResults=1
+    )
+    response = request.execute()
+    if len(response["items"]) == 0:
+        raise Exception(f"Could not obtain a channel ID for {channel_name}")
+    channel_id = response["items"][0]["snippet"]["channelId"]
     cursor.execute(
         """
     INSERT OR IGNORE INTO channels (id, name)
@@ -99,7 +107,8 @@ def get_channel_name(youtube, cursor, channel_id):
     """,
         (channel_id, channel_name),
     )
-    return (channel_name, False)
+    print(f"The channel ID for {channel_name} is {channel_id}")
+    return (channel_id, False)
 
 
 def create_or_get_db_conn():
@@ -196,17 +205,17 @@ def get_video_description(download_path, video_id):
         return description
 
 
-def process_list_command(youtube, channel_id):
+def process_list_command(youtube, channel_name):
     (conn, cursor) = create_or_get_db_conn()
-    (channel_name, channel_is_cached) = get_channel_name(youtube, cursor, channel_id)
+    (channel_id, channel_is_cached) = get_channel_info(youtube, cursor, channel_name)
 
     videos = []
-    print(f"Getting video list for {channel_name}")
+    print(f"Getting video list for {channel_id}")
     if channel_is_cached:
-        print(f"Retrieving {channel_name} videos from cache...")
+        print(f"Retrieving {channel_id} videos from cache...")
         videos.extend(get_video_list(channel_id, cursor))
     else:
-        print(f"{channel_name} is not cached. Will retrieve video list from YouTube...")
+        print(f"{channel_id} is not cached. Will retrieve video list from YouTube...")
         next_page_token = None
         while True:
             search_response = (
@@ -238,7 +247,6 @@ def process_list_command(youtube, channel_id):
     conn.close()
     for video in videos:
         print(f"{video.id}: {video.title}")
-    return 0
 
 
 def process_list_channel_command():
@@ -251,7 +259,6 @@ def process_list_channel_command():
         print(f"{id}: {name}")
     cursor.close()
     conn.close()
-    return 0
 
 
 def process_download_command(channel_id):
@@ -299,7 +306,6 @@ def process_download_command(channel_id):
             conn.commit()
             cursor.close()
             conn.close()
-    return 0
 
 
 def process_generate_index_command(channel_id):
@@ -354,20 +360,19 @@ def process_generate_index_command(channel_id):
 def main():
     api_key = os.getenv("YT_CH_ARCHIVER_API_KEY")
     if not api_key:
-        print(
+        raise Exception(
             "The YT_CH_ARCHIVER_API_KEY environment variable must be set with your API key"
         )
-        return 1
     args = get_args()
     youtube = build("youtube", "v3", developerKey=api_key)
     if args.subcommand == "list":
-        return process_list_command(youtube, args.channel_id)
+        process_list_command(youtube, args.channel_name)
     elif args.subcommand == "list-channels":
-        return process_list_channel_command()
+        process_list_channel_command()
     elif args.subcommand == "download":
-        return process_download_command(args.channel_id)
+        process_download_command(args.channel_id)
     elif args.subcommand == "generate-index":
-        return process_generate_index_command(args.channel_id)
+        process_generate_index_command(args.channel_id)
     return 0
 
 
