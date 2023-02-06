@@ -8,6 +8,7 @@ import sys
 
 import yt_dlp
 
+from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
 
 # According to the yt-dlp documentation, this format selection will get the
@@ -60,7 +61,27 @@ def get_args():
         type=str,
         help="The ID of the channel whose videos you want to download",
     )
+    index_parser = subparsers.add_parser(
+        "generate-index",
+        help="Generate an index file for the videos downloaded from a channel",
+    )
+    index_parser.add_argument(
+        "channel_id",
+        type=str,
+        help="The ID of the channel for the index you want to generate",
+    )
     return parser.parse_args()
+
+
+def get_channel_name_from_db(cursor, channel_id):
+    print(f"Using channel_id: {channel_id}")
+    cursor.execute("SELECT name FROM channels WHERE id = ?", (channel_id,))
+    channel_name = cursor.fetchone()
+    if not channel_name:
+        raise Exception(
+            f"The cache has no channel with ID {channel_id}. Please run the `list` command to first get a list of videos for the channel."
+        )
+    return channel_name[0]
 
 
 def get_channel_name(youtube, cursor, channel_id):
@@ -125,6 +146,21 @@ def get_video_list(channel_id, cursor):
     return videos
 
 
+def get_videos_for_channel(channel_id):
+    download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
+    if not download_root_path:
+        raise Exception(
+            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set with your API key"
+        )
+    (conn, cursor) = create_or_get_db_conn()
+    channel_name = get_channel_name_from_db(cursor, channel_id)
+    download_path = os.path.join(download_root_path, channel_name)
+    videos = get_video_list(channel_id, cursor)
+    cursor.close()
+    conn.close()
+    return (videos, download_path, channel_name)
+
+
 def get_full_video_path(download_path, video_id):
     """
     Before calling yt-dlp, it's not possible to know the file extension of the
@@ -139,6 +175,25 @@ def get_full_video_path(download_path, video_id):
     pattern = os.path.join(download_path, f"{video_id}.[!webp|jpg]*")
     files = glob.glob(pattern)
     return files[0]
+
+
+def get_video_thumbnail_path(download_path, video_id):
+    """
+    Get the downloaded or generated thumbnail for a video, which is either a jpg or a webp.
+    """
+    pattern = os.path.join(download_path, f"{video_id}.webp")
+    pattern2 = os.path.join(download_path, f"{video_id}.jpg")
+    files = glob.glob(pattern) + glob.glob(pattern2)
+    if len(files) == 0:
+        raise Exception(f"{video_id} has no thumbnail")
+    return files[0]
+
+
+def get_video_description(download_path, video_id):
+    path = os.path.join(download_path, "description", f"{video_id}.description")
+    with open(path, "r") as f:
+        description = f.read()
+        return description
 
 
 def process_list_command(youtube, channel_id):
@@ -199,25 +254,8 @@ def process_list_channel_command():
     return 0
 
 
-def process_download_command(youtube, channel_id):
-    download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
-    if not download_root_path:
-        print(
-            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set with your API key"
-        )
-        return 1
-    (conn, cursor) = create_or_get_db_conn()
-    (channel_name, channel_is_cached) = get_channel_name(youtube, cursor, channel_id)
-    if not channel_is_cached:
-        print(
-            "Please run the `list` command first to cache a list of this channel's videos"
-        )
-        return 1
-    download_path = os.path.join(download_root_path, channel_name)
-    videos = get_video_list(channel_id, cursor)
-    cursor.close()
-    conn.close()
-
+def process_download_command(channel_id):
+    (videos, download_path, channel_name) = get_videos_for_channel(channel_id)
     print(f"Attempting to download videos for {channel_name}...")
     for video in videos:
         if video.saved_path and os.path.exists(video.saved_path):
@@ -264,6 +302,55 @@ def process_download_command(youtube, channel_id):
     return 0
 
 
+def process_generate_index_command(channel_id):
+    (videos, download_path, channel_name) = get_videos_for_channel(channel_id)
+    print(f"Generating index for {channel_name}...")
+    soup = BeautifulSoup("<html><body></body></html>", "html.parser")
+    body = soup.body
+    if not body:
+        raise Exception("Body tag not found")
+    header = soup.new_tag("header")
+    header["style"] = "font-size: 48px"
+    header.string = channel_name
+    html_tag = soup.find("html")
+    if not html_tag:
+        raise Exception("Root html tag not found")
+    html_tag.insert(0, header)
+
+    for video in videos:
+        print(f"Processing {video.id}...")
+        div = soup.new_tag("div")
+        div["style"] = "border: 1px solid black; padding: 10px"
+
+        title_p = soup.new_tag("p")
+        title_p.string = video.title
+        title_p["style"] = "font-size: 24px"
+        div.append(title_p)
+
+        thumbnail_img = soup.new_tag("img")
+        thumbnail_img["src"] = get_video_thumbnail_path(
+            os.path.join(download_path, "video"), video.id
+        )
+        thumbnail_img["alt"] = video.id
+        div.append(thumbnail_img)
+
+        youtube_id_p = soup.new_tag("p")
+        youtube_id_p.string = f"YouTube Video ID: {video.id}"
+        div.append(youtube_id_p)
+
+        description_pre = soup.new_tag("pre")
+        description_pre["style"] = "word-wrap: break-word; width: 50%"
+        description = get_video_description(download_path, video.id)
+        description_pre.string = description
+        div.append(description_pre)
+
+        body.append(div)
+    index_path = os.path.join(download_path, "index.html")
+    print(f"Generating index at {index_path}")
+    with open(index_path, "w") as f:
+        f.write(soup.prettify())
+
+
 def main():
     api_key = os.getenv("YT_CH_ARCHIVER_API_KEY")
     if not api_key:
@@ -278,7 +365,9 @@ def main():
     elif args.subcommand == "list-channels":
         return process_list_channel_command()
     elif args.subcommand == "download":
-        return process_download_command(youtube, args.channel_id)
+        return process_download_command(args.channel_id)
+    elif args.subcommand == "generate-index":
+        return process_generate_index_command(args.channel_id)
     return 0
 
 
