@@ -59,7 +59,15 @@ class Playlist:
 
     class PlaylistItem:
         def __init__(
-            self, id, video_id, channel_id, title, is_unlisted, is_private, is_external
+            self,
+            id,
+            video_id,
+            channel_id,
+            title,
+            is_unlisted,
+            is_private,
+            is_external,
+            is_deleted,
         ):
             self.id = id
             self.video_id = video_id
@@ -68,11 +76,14 @@ class Playlist:
             self.is_unlisted = True if is_unlisted == 1 else False
             self.is_private = True if is_private == 1 else False
             self.is_external = True if is_external == 1 else False
+            self.is_deleted = True if is_deleted == 1 else False
 
         def print(self):
             theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
             console = Console(highlighter=WordHighlighter(), theme=theme)
             if self.is_private:
+                console.print(f"{self.title}", style="red")
+            elif self.is_deleted:
                 console.print(f"{self.title}", style="red")
             elif self.is_unlisted:
                 console.print(f"{self.title} UNLISTED")
@@ -89,10 +100,25 @@ class Playlist:
         console.print(Text("=" * len(header), style="green"))
 
     def add_item(
-        self, id, video_id, channel_id, title, is_unlisted, is_private, is_external
+        self,
+        id,
+        video_id,
+        channel_id,
+        title,
+        is_unlisted,
+        is_private,
+        is_external,
+        is_deleted,
     ):
         item = self.PlaylistItem(
-            id, video_id, channel_id, title, is_unlisted, is_private, is_external
+            id,
+            video_id,
+            channel_id,
+            title,
+            is_unlisted,
+            is_private,
+            is_external,
+            is_deleted,
         )
         self.items.append(item)
         return item
@@ -135,6 +161,11 @@ def get_args():
     )
     playlist_parser.add_argument(
         "channel_id", help="The ID of the channel whose playlists you wish to obtain"
+    )
+    playlist_parser.add_argument(
+        "--add-unlisted",
+        action="store_true",
+        help="Add unlisted videos from the playlist to the videos cache",
     )
     return parser.parse_args()
 
@@ -208,6 +239,15 @@ def create_or_get_db_conn():
     )
     """
     )
+    cursor.execute("PRAGMA table_info(videos)")
+    columns = [row[1] for row in cursor.fetchall()]
+    if "is_unlisted" not in columns:
+        cursor.execute(
+            """
+        ALTER TABLE videos
+        ADD COLUMN is_unlisted INTEGER NOT NULL DEFAULT 0
+        """
+        )
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS playlists (
@@ -231,6 +271,7 @@ def create_or_get_db_conn():
         is_unlisted INTEGER NOT NULL DEFAULT 0,
         is_private INTEGER NOT NULL DEFAULT 0,
         is_external INTEGER NOT NULL DEFAULT 0,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (playlist_id) REFERENCES playlists (id)
         FOREIGN KEY (video_id) REFERENCES videos (id)
     )
@@ -326,7 +367,7 @@ def get_playlist_items(youtube, playlists):
         print(f"Obtaining items for playlist {playlist.id}")
         cursor.execute(
             """
-            SELECT id, video_id, channel_id, title, is_unlisted, is_private, is_external
+            SELECT id, video_id, channel_id, title, is_unlisted, is_private, is_external, is_deleted
             FROM playlist_items WHERE playlist_id = ?
             """,
             (playlist.id,),
@@ -336,7 +377,7 @@ def get_playlist_items(youtube, playlists):
             print("Using playlist items from cache")
             for row in rows:
                 playlist.add_item(
-                    row[0], row[1], row[2], row[3], row[4], row[5], row[6]
+                    row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
                 )
             continue
 
@@ -364,7 +405,8 @@ def get_playlist_items(youtube, playlists):
                 1 if item["snippet"]["resourceId"]["videoId"] not in video_ids else 0
             )
             is_private = 1 if item["snippet"]["title"] == "Private video" else 0
-            is_external = item["snippet"]["channelId"] != playlist.channel_id
+            is_deleted = 1 if item["snippet"]["title"] == "Deleted video" else 0
+            is_external = 1 if item["snippet"]["channelId"] != playlist.channel_id else 0
             playlist_item = playlist.add_item(
                 item["id"],
                 item["snippet"]["resourceId"]["videoId"],
@@ -373,12 +415,13 @@ def get_playlist_items(youtube, playlists):
                 is_unlisted,
                 is_private,
                 is_external,
+                is_deleted,
             )
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO playlist_items (
-                    id, playlist_id, video_id, channel_id, title, is_unlisted, is_private)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    id, playlist_id, video_id, channel_id, title, is_unlisted, is_private, is_deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     playlist_item.id,
@@ -388,9 +431,24 @@ def get_playlist_items(youtube, playlists):
                     playlist_item.title,
                     is_unlisted,
                     is_private,
+                    is_deleted,
                 ),
             )
         conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def add_unlisted_video(playlist_item):
+    (conn, cursor) = create_or_get_db_conn()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO videos (id, channel_id, title, is_unlisted)
+        VALUES (?, ?, ?, ?)
+        """,
+        (playlist_item.video_id, playlist_item.channel_id, playlist_item.title, 1),
+    )
+    conn.commit()
     cursor.close()
     conn.close()
 
@@ -582,13 +640,16 @@ def process_generate_index_command(channel_id):
         f.write(soup.prettify())
 
 
-def process_get_playist_command(youtube, channel_id):
+def process_get_playist_command(youtube, channel_id, add_unlisted):
     playlists = get_playlists_for_channel(youtube, channel_id)
     get_playlist_items(youtube, playlists)
     for playlist in playlists:
         playlist.print_title()
         for item in playlist.items:
             item.print()
+            if add_unlisted:
+                if item.is_unlisted and not item.is_private and not item.is_deleted:
+                    add_unlisted_video(item)
 
 
 def main():
@@ -608,7 +669,7 @@ def main():
     elif args.subcommand == "generate-index":
         process_generate_index_command(args.channel_id)
     elif args.subcommand == "get-playlists":
-        process_get_playist_command(youtube, args.channel_id)
+        process_get_playist_command(youtube, args.channel_id, args.add_unlisted)
     return 0
 
 

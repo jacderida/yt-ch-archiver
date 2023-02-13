@@ -45,4 +45,11 @@ Obtain the playlists for a channel by running the following command:
 ./app.py get-playlists <channel-id>
 ```
 
-Playlists can contain videos that are unlisted on the main channel or videos that have since been made private. They can also contain videos that are external to the channel the playlist is defined on.
+Playlists can contain videos that are unlisted on the main channel, that have since been made private or been deleted, and they can also contain videos that are external to the channel the playlist is defined on.
+
+To add the unlisted videos to the database, run the command as:
+```
+./app.py get-playlists <channel-id> --add-unlisted
+```
+
+You can then re-run the `download` command and the unlisted videos will be pulled.
