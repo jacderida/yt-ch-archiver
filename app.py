@@ -10,6 +10,10 @@ import yt_dlp
 
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
+from rich.console import Console
+from rich.highlighter import RegexHighlighter
+from rich.text import Text
+from rich.theme import Theme
 
 # According to the yt-dlp documentation, this format selection will get the
 # best mp4 video available, or failing that, the best video otherwise available.
@@ -41,10 +45,65 @@ class Video:
         return Video(id, title, saved_path)
 
 
+class WordHighlighter(RegexHighlighter):
+    base_style = "hl."
+    highlights = [r"(?P<word_unlisted>UNLISTED)", "(?P<word_external>EXTERNAL)"]
+
+
+class Playlist:
+    def __init__(self, id, title, channel_id):
+        self.id = id
+        self.title = title
+        self.channel_id = channel_id
+        self.items = []
+
+    class PlaylistItem:
+        def __init__(
+            self, id, video_id, channel_id, title, is_unlisted, is_private, is_external
+        ):
+            self.id = id
+            self.video_id = video_id
+            self.channel_id = channel_id
+            self.title = title
+            self.is_unlisted = True if is_unlisted == 1 else False
+            self.is_private = True if is_private == 1 else False
+            self.is_external = True if is_external == 1 else False
+
+        def print(self):
+            theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
+            console = Console(highlighter=WordHighlighter(), theme=theme)
+            if self.is_private:
+                console.print(f"{self.title}", style="red")
+            elif self.is_unlisted:
+                console.print(f"{self.title} UNLISTED")
+            elif self.is_external:
+                console.print(f"{self.title} EXTERNAL")
+            else:
+                console.print(f"{self.title}")
+
+    def print_title(self):
+        header = f"{self.title} ({len(self.items)} items)"
+        console = Console()
+        console.print(Text("=" * len(header), style="green"))
+        console.print(f"{header}", style="green")
+        console.print(Text("=" * len(header), style="green"))
+
+    def add_item(
+        self, id, video_id, channel_id, title, is_unlisted, is_private, is_external
+    ):
+        item = self.PlaylistItem(
+            id, video_id, channel_id, title, is_unlisted, is_private, is_external
+        )
+        self.items.append(item)
+        return item
+
+
 def get_args():
     parser = argparse.ArgumentParser(description="YouTube Channel Archiver")
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
-    list_parser = subparsers.add_parser("list", help="List all videos for a channel")
+    list_parser = subparsers.add_parser(
+        "list", help="List all videos for a channel and cache them locally"
+    )
     list_parser.add_argument(
         "channel_name",
         type=str,
@@ -69,6 +128,13 @@ def get_args():
         "channel_id",
         type=str,
         help="The ID of the channel for the index you want to generate",
+    )
+    playlist_parser = subparsers.add_parser(
+        "get-playlists",
+        help="Obtain all the playlists for a channel and cache them locally",
+    )
+    playlist_parser.add_argument(
+        "channel_id", help="The ID of the channel whose playlists you wish to obtain"
     )
     return parser.parse_args()
 
@@ -142,6 +208,34 @@ def create_or_get_db_conn():
     )
     """
     )
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS playlists (
+        id TEXT PRIMARY KEY,
+        channel_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        FOREIGN KEY (channel_id) REFERENCES channels (id)
+    )
+    """
+    )
+    # It's possible for a playlist item to be a video that's not related to the
+    # channel that created the playlist.
+    cursor.execute(
+        """
+    CREATE TABLE IF NOT EXISTS playlist_items (
+        id TEXT PRIMARY KEY,
+        playlist_id TEXT NOT NULL,
+        video_id TEXT NOT NULL,
+        channel_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        is_unlisted INTEGER NOT NULL DEFAULT 0,
+        is_private INTEGER NOT NULL DEFAULT 0,
+        is_external INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (playlist_id) REFERENCES playlists (id)
+        FOREIGN KEY (video_id) REFERENCES videos (id)
+    )
+    """
+    )
     return (conn, cursor)
 
 
@@ -153,6 +247,15 @@ def get_video_list(channel_id, cursor):
         video = Video.from_row(row)
         videos.append(video)
     return videos
+
+
+def get_all_video_ids(cursor):
+    video_ids = []
+    cursor.execute("SELECT id FROM videos")
+    rows = cursor.fetchall()
+    for row in rows:
+        video_ids.append(row[0])
+    return video_ids
 
 
 def get_videos_for_channel(channel_id):
@@ -168,6 +271,128 @@ def get_videos_for_channel(channel_id):
     cursor.close()
     conn.close()
     return (videos, download_path, channel_name)
+
+
+def get_playlists_for_channel(youtube, channel_id):
+    (conn, cursor) = create_or_get_db_conn()
+    channel_name = get_channel_name_from_db(cursor, channel_id)
+
+    print(f"Obtaining playlists for {channel_name}")
+    playlists = []
+    cursor.execute(
+        "SELECT id, title, channel_id FROM playlists WHERE channel_id = ?",
+        (channel_id,),
+    )
+    rows = cursor.fetchall()
+    if len(rows) > 0:
+        print("Using playlists from cache")
+        for row in rows:
+            playlist = Playlist(row[0], row[1], row[2])
+            playlists.append(playlist)
+        return playlists
+
+    print("Getting playlists from YouTube")
+    next_page_token = None
+    while True:
+        playlist_response = (
+            youtube.playlists()
+            .list(part="id,snippet", channelId=channel_id, maxResults=50)
+            .execute()
+        )
+        for playlist in playlist_response["items"]:
+            playlist = Playlist(
+                playlist["id"], playlist["snippet"]["title"], channel_id
+            )
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO playlists (id, channel_id, title)
+                VALUES (?, ?, ?)
+                """,
+                (playlist.id, playlist.channel_id, playlist.title),
+            )
+            playlists.append(playlist)
+        conn.commit()
+        next_page_token = playlist_response.get("nextPageToken")
+        if not next_page_token:
+            break
+    return playlists
+
+
+def get_playlist_items(youtube, playlists):
+    (conn, cursor) = create_or_get_db_conn()
+
+    video_ids = get_all_video_ids(cursor)
+    for playlist in playlists:
+        print(f"Obtaining items for playlist {playlist.id}")
+        cursor.execute(
+            """
+            SELECT id, video_id, channel_id, title, is_unlisted, is_private, is_external
+            FROM playlist_items WHERE playlist_id = ?
+            """,
+            (playlist.id,),
+        )
+        rows = cursor.fetchall()
+        if len(rows) > 0:
+            print("Using playlist items from cache")
+            for row in rows:
+                playlist.add_item(
+                    row[0], row[1], row[2], row[3], row[4], row[5], row[6]
+                )
+            continue
+
+        next_page_token = None
+        items = []
+        while True:
+            playlist_items_response = (
+                youtube.playlistItems()
+                .list(
+                    part="id,snippet",
+                    playlistId=playlist.id,
+                    maxResults=50,
+                    pageToken=next_page_token,
+                )
+                .execute()
+            )
+
+            items.extend(playlist_items_response.get("items", []))
+            next_page_token = playlist_items_response.get("nextPageToken")
+            if not next_page_token:
+                break
+            print("Getting next page of playlist items...")
+        for item in items:
+            is_unlisted = (
+                1 if item["snippet"]["resourceId"]["videoId"] not in video_ids else 0
+            )
+            is_private = 1 if item["snippet"]["title"] == "Private video" else 0
+            is_external = item["snippet"]["channelId"] != playlist.channel_id
+            playlist_item = playlist.add_item(
+                item["id"],
+                item["snippet"]["resourceId"]["videoId"],
+                item["snippet"]["channelId"],
+                item["snippet"]["title"],
+                is_unlisted,
+                is_private,
+                is_external,
+            )
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO playlist_items (
+                    id, playlist_id, video_id, channel_id, title, is_unlisted, is_private)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    playlist_item.id,
+                    playlist.id,
+                    playlist_item.video_id,
+                    playlist_item.channel_id,
+                    playlist_item.title,
+                    is_unlisted,
+                    is_private,
+                ),
+            )
+        conn.commit()
+    cursor.close()
+    conn.close()
 
 
 def get_full_video_path(download_path, video_id):
@@ -357,6 +582,15 @@ def process_generate_index_command(channel_id):
         f.write(soup.prettify())
 
 
+def process_get_playist_command(youtube, channel_id):
+    playlists = get_playlists_for_channel(youtube, channel_id)
+    get_playlist_items(youtube, playlists)
+    for playlist in playlists:
+        playlist.print_title()
+        for item in playlist.items:
+            item.print()
+
+
 def main():
     api_key = os.getenv("YT_CH_ARCHIVER_API_KEY")
     if not api_key:
@@ -373,6 +607,8 @@ def main():
         process_download_command(args.channel_id)
     elif args.subcommand == "generate-index":
         process_generate_index_command(args.channel_id)
+    elif args.subcommand == "get-playlists":
+        process_get_playist_command(youtube, args.channel_id)
     return 0
 
 

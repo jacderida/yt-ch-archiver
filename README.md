@@ -37,3 +37,12 @@ The videos will be downloaded to `YT_CH_ARCHIVER_ROOT_PATH/channel_name/video`. 
 ```
 
 This will output an `index.html` file at `YT_CH_ARCHIVER_ROOT_PATH/channel_name/video/index.html`.
+
+## Get Playlists for the Channel
+
+Obtain the playlists for a channel by running the following command:
+```
+./app.py get-playlists <channel-id>
+```
+
+Playlists can contain videos that are unlisted on the main channel or videos that have since been made private. They can also contain videos that are external to the channel the playlist is defined on.
