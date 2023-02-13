@@ -135,6 +135,11 @@ def get_args():
         type=str,
         help="The name of the channel whose videos you want to list",
     )
+    list_parser.add_argument(
+        "--not-downloaded",
+        action="store_true",
+        help="Filter the list to only show videos not downloaded yet",
+    )
     subparsers.add_parser(
         "list-channels", help="List all the channels that have been used"
     )
@@ -280,9 +285,12 @@ def create_or_get_db_conn():
     return (conn, cursor)
 
 
-def get_video_list(channel_id, cursor):
+def get_video_list(channel_id, cursor, not_downloaded):
     videos = []
-    cursor.execute("SELECT * FROM videos WHERE channel_id = ?", (channel_id,))
+    query = "SELECT * FROM videos WHERE channel_id = ?"
+    if not_downloaded:
+        query += " AND saved_path IS NULL;"
+    cursor.execute(query, (channel_id,))
     rows = cursor.fetchall()
     for row in rows:
         video = Video.from_row(row)
@@ -308,7 +316,7 @@ def get_videos_for_channel(channel_id):
     (conn, cursor) = create_or_get_db_conn()
     channel_name = get_channel_name_from_db(cursor, channel_id)
     download_path = os.path.join(download_root_path, channel_name)
-    videos = get_video_list(channel_id, cursor)
+    videos = get_video_list(channel_id, cursor, False)
     cursor.close()
     conn.close()
     return (videos, download_path, channel_name)
@@ -406,7 +414,9 @@ def get_playlist_items(youtube, playlists):
             )
             is_private = 1 if item["snippet"]["title"] == "Private video" else 0
             is_deleted = 1 if item["snippet"]["title"] == "Deleted video" else 0
-            is_external = 1 if item["snippet"]["channelId"] != playlist.channel_id else 0
+            is_external = (
+                1 if item["snippet"]["channelId"] != playlist.channel_id else 0
+            )
             playlist_item = playlist.add_item(
                 item["id"],
                 item["snippet"]["resourceId"]["videoId"],
@@ -488,7 +498,7 @@ def get_video_description(download_path, video_id):
         return description
 
 
-def process_list_command(youtube, channel_name):
+def process_list_command(youtube, channel_name, not_downloaded):
     (conn, cursor) = create_or_get_db_conn()
     (channel_id, channel_is_cached) = get_channel_info(youtube, cursor, channel_name)
 
@@ -496,7 +506,7 @@ def process_list_command(youtube, channel_name):
     print(f"Getting video list for {channel_id}")
     if channel_is_cached:
         print(f"Retrieving {channel_id} videos from cache...")
-        videos.extend(get_video_list(channel_id, cursor))
+        videos.extend(get_video_list(channel_id, cursor, not_downloaded))
     else:
         print(f"{channel_id} is not cached. Will retrieve video list from YouTube...")
         next_page_token = None
@@ -661,7 +671,7 @@ def main():
     args = get_args()
     youtube = build("youtube", "v3", developerKey=api_key)
     if args.subcommand == "list":
-        process_list_command(youtube, args.channel_name)
+        process_list_command(youtube, args.channel_name, args.not_downloaded)
     elif args.subcommand == "list-channels":
         process_list_channel_command()
     elif args.subcommand == "download":
