@@ -430,7 +430,8 @@ def get_playlist_items(youtube, playlists):
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO playlist_items (
-                    id, playlist_id, video_id, channel_id, title, is_unlisted, is_private, is_deleted)
+                    id, playlist_id, video_id, channel_id,
+                    title, is_unlisted, is_private, is_external, is_deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -441,6 +442,7 @@ def get_playlist_items(youtube, playlists):
                     playlist_item.title,
                     is_unlisted,
                     is_private,
+                    is_external,
                     is_deleted,
                 ),
             )
