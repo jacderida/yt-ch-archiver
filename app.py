@@ -21,10 +21,12 @@ FORMAT_SELECTION = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b"
 
 
 class Video:
-    def __init__(self, id, title, saved_path):
+    def __init__(self, id, title, saved_path, is_unlisted, is_private):
         self.id = id
         self.title = title
         self.saved_path = saved_path
+        self.is_unlisted = is_unlisted
+        self.is_private = is_private
 
     def get_url(self):
         return f"http://www.youtube.com/watch?v={self.id}"
@@ -35,14 +37,33 @@ class Video:
         response = youtube.videos().list(part="snippet", id=id).execute()
         title = response["items"][0]["snippet"]["title"]
         print(f"Retrieved {id}: {title}")
-        return Video(id, title, False)
+        return Video(id, title, "", False, False)
 
     @staticmethod
     def from_row(row):
         id = row[0]
         title = row[2]
         saved_path = row[3]
-        return Video(id, title, saved_path)
+        is_unlisted = row[4]
+        is_private = row[5]
+        return Video(id, title, saved_path, is_unlisted, is_private)
+
+    def print(self):
+        theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
+        console = Console(highlighter=WordHighlighter(), theme=theme)
+        msg = f"{self.id}: {self.title}"
+        if self.is_unlisted or self.is_private:
+            msg += " ["
+            if self.is_unlisted:
+                msg += "UNLISTED, "
+            if self.is_private:
+                msg += "PRIVATE"
+            msg = msg.removesuffix(", ")
+            msg += "]"
+        if self.saved_path:
+            console.print(msg, style="green")
+        else:
+            console.print(msg, style="red")
 
 
 class WordHighlighter(RegexHighlighter):
@@ -128,7 +149,8 @@ def get_args():
     parser = argparse.ArgumentParser(description="YouTube Channel Archiver")
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
     list_parser = subparsers.add_parser(
-        "list", help="List all videos for a channel and cache them locally"
+        "list",
+        help="List all videos for a channel and cache them locally. Videos in green have been downloaded, while those in red have not.",
     )
     list_parser.add_argument(
         "channel_name",
@@ -251,6 +273,13 @@ def create_or_get_db_conn():
             """
         ALTER TABLE videos
         ADD COLUMN is_unlisted INTEGER NOT NULL DEFAULT 0
+        """
+        )
+    if "is_private" not in columns:
+        cursor.execute(
+            """
+        ALTER TABLE videos
+        ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0
         """
         )
     cursor.execute(
@@ -455,10 +484,16 @@ def add_unlisted_video(playlist_item):
     (conn, cursor) = create_or_get_db_conn()
     cursor.execute(
         """
-        INSERT OR IGNORE INTO videos (id, channel_id, title, is_unlisted)
+        INSERT OR IGNORE INTO videos (id, channel_id, title, is_unlisted, is_private)
         VALUES (?, ?, ?, ?)
         """,
-        (playlist_item.video_id, playlist_item.channel_id, playlist_item.title, 1),
+        (
+            playlist_item.video_id,
+            playlist_item.channel_id,
+            playlist_item.title,
+            1,
+            playlist_item.is_private,
+        ),
     )
     conn.commit()
     cursor.close()
@@ -541,7 +576,7 @@ def process_list_command(youtube, channel_name, not_downloaded):
     cursor.close()
     conn.close()
     for video in videos:
-        print(f"{video.id}: {video.title}")
+        video.print()
 
 
 def process_list_channel_command():
@@ -562,6 +597,9 @@ def process_download_command(channel_id):
     for video in videos:
         if video.saved_path and os.path.exists(video.saved_path):
             print(f"{video.id} has already been downloaded. Skipping.")
+            continue
+        if video.is_private:
+            print(f"{video.id} is a private video. Skipping.")
             continue
         ydl_opts = {
             "continue": True,
