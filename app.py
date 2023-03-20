@@ -173,6 +173,11 @@ def get_args():
         type=str,
         help="The ID of the channel whose videos you want to download",
     )
+    download_parser.add_argument(
+        "--skip-ids",
+        type=str,
+        help="A comma-separated list of video IDs to skip",
+    )
     index_parser = subparsers.add_parser(
         "generate-index",
         help="Generate an index file for the videos downloaded from a channel",
@@ -591,7 +596,7 @@ def process_list_channel_command():
     conn.close()
 
 
-def process_download_command(channel_id):
+def process_download_command(channel_id, skip_ids):
     (videos, download_path, channel_name) = get_videos_for_channel(channel_id)
     print(f"Attempting to download videos for {channel_name}...")
     for video in videos:
@@ -600,6 +605,9 @@ def process_download_command(channel_id):
             continue
         if video.is_private:
             print(f"{video.id} is a private video. Skipping.")
+            continue
+        if video.id in skip_ids:
+            print(f"{video.id} was on skip list. Skipping.")
             continue
         ydl_opts = {
             "continue": True,
@@ -715,7 +723,10 @@ def main():
     elif args.subcommand == "list-channels":
         process_list_channel_command()
     elif args.subcommand == "download":
-        process_download_command(args.channel_id)
+        skip_ids = []
+        if args.skip_ids:
+            skip_ids = args.skip_ids.split(",")
+        process_download_command(args.channel_id, skip_ids)
     elif args.subcommand == "generate-index":
         process_generate_index_command(args.channel_id)
     elif args.subcommand == "get-playlists":
