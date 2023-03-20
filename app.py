@@ -379,13 +379,18 @@ def get_playlists_for_channel(youtube, channel_id):
     while True:
         playlist_response = (
             youtube.playlists()
-            .list(part="id,snippet", channelId=channel_id, maxResults=50)
+            .list(
+                part="id,snippet",
+                channelId=channel_id,
+                maxResults=50,
+                pageToken=next_page_token,
+            )
             .execute()
         )
         for playlist in playlist_response["items"]:
-            playlist = Playlist(
-                playlist["id"], playlist["snippet"]["title"], channel_id
-            )
+            title = playlist["snippet"]["title"]
+            print(f"Retrieving playlist {title}...")
+            playlist = Playlist(playlist["id"], title, channel_id)
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO playlists (id, channel_id, title)
@@ -406,7 +411,7 @@ def get_playlist_items(youtube, playlists):
 
     video_ids = get_all_video_ids(cursor)
     for playlist in playlists:
-        print(f"Obtaining items for playlist {playlist.id}")
+        print(f"Obtaining items for playlist {playlist.title}")
         cursor.execute(
             """
             SELECT id, video_id, channel_id, title, is_unlisted, is_private, is_external, is_deleted
@@ -466,7 +471,7 @@ def get_playlist_items(youtube, playlists):
                 INSERT OR IGNORE INTO playlist_items (
                     id, playlist_id, video_id, channel_id,
                     title, is_unlisted, is_private, is_external, is_deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     playlist_item.id,
