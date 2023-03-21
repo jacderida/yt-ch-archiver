@@ -3,8 +3,9 @@
 import argparse
 import glob
 import os
-import sqlite3
 import sys
+
+import db
 
 import yt_dlp
 
@@ -148,23 +149,25 @@ class Playlist:
 def get_args():
     parser = argparse.ArgumentParser(description="YouTube Channel Archiver")
     subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
-    list_parser = subparsers.add_parser(
-        "list",
-        help="List all videos for a channel and cache them locally. Videos in green have been downloaded, while those in red have not.",
+    subparsers.add_parser(
+        "list-channels", help="List all the channels that have been used"
     )
-    list_parser.add_argument(
+
+    list_videos_parser = subparsers.add_parser(
+        "list-videos",
+        help="List all the locally cached videos for a channel. Green rows indicate the video has been downloaded, while those in red have not.",
+    )
+    list_videos_parser.add_argument(
         "channel_name",
         type=str,
         help="The name of the channel whose videos you want to list",
     )
-    list_parser.add_argument(
+    list_videos_parser.add_argument(
         "--not-downloaded",
         action="store_true",
         help="Filter the list to only show videos not downloaded yet",
     )
-    subparsers.add_parser(
-        "list-channels", help="List all the channels that have been used"
-    )
+
     download_parser = subparsers.add_parser(
         "download", help="Download all videos for a channel"
     )
@@ -178,23 +181,34 @@ def get_args():
         type=str,
         help="A comma-separated list of video IDs to skip",
     )
-    index_parser = subparsers.add_parser(
+
+    generate_index_parser = subparsers.add_parser(
         "generate-index",
         help="Generate an index file for the videos downloaded from a channel",
     )
-    index_parser.add_argument(
+    generate_index_parser.add_argument(
         "channel_id",
         type=str,
         help="The ID of the channel for the index you want to generate",
     )
-    playlist_parser = subparsers.add_parser(
-        "get-playlists",
-        help="Obtain all the playlists for a channel and cache them locally",
+
+    get_videos_parser = subparsers.add_parser(
+        "get-videos",
+        help="Obtain a list of all the videos for a channel and cache the list locally",
     )
-    playlist_parser.add_argument(
+    get_videos_parser.add_argument(
+        "channel_name",
+        help="The name of the channel whose playlists you wish to obtain",
+    )
+
+    get_playlists_parser = subparsers.add_parser(
+        "get-playlists",
+        help="Obtain a list of all the playlists for a channel and cache the list locally",
+    )
+    get_playlists_parser.add_argument(
         "channel_id", help="The ID of the channel whose playlists you wish to obtain"
     )
-    playlist_parser.add_argument(
+    get_playlists_parser.add_argument(
         "--add-unlisted",
         action="store_true",
         help="Add unlisted videos from the playlist to the videos cache",
@@ -214,14 +228,6 @@ def get_channel_name_from_db(cursor, channel_id):
 
 
 def get_channel_info(youtube, cursor, channel_name):
-    print(f"Obtaining channel info for {channel_name}")
-    cursor.execute("SELECT id FROM channels WHERE name = ?", (channel_name,))
-    result = cursor.fetchone()
-    if result:
-        channel_id = result[0]
-        print(f"{channel_name} is in the cache")
-        print(f"The channel ID for {channel_name} is {channel_id}")
-        return (channel_id, True)
     request = youtube.search().list(
         part="snippet", type="channel", q=channel_name, maxResults=1
     )
@@ -229,107 +235,9 @@ def get_channel_info(youtube, cursor, channel_name):
     if len(response["items"]) == 0:
         raise Exception(f"Could not obtain a channel ID for {channel_name}")
     channel_id = response["items"][0]["snippet"]["channelId"]
-    cursor.execute(
-        """
-    INSERT OR IGNORE INTO channels (id, name)
-    VALUES (?, ?)
-    """,
-        (channel_id, channel_name),
-    )
     print(f"The channel ID for {channel_name} is {channel_id}")
-    return (channel_id, False)
-
-
-def create_or_get_db_conn():
-    if "HOME" in os.environ:
-        app_data_path = os.path.join(os.environ["HOME"], ".local", "yt-ch-archiver")
-    elif "APPDATA" in os.environ:
-        app_data_path = os.path.join(os.environ["APPDATA"], "yt-ch-archiver")
-    else:
-        raise Exception("Could not find home directory")
-    if not os.path.exists(app_data_path):
-        os.makedirs(app_data_path)
-    database_path = os.path.join(app_data_path, "videos.db")
-    conn = sqlite3.connect(database_path)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS channels (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL
-    )
-    """
-    )
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS videos (
-        id TEXT PRIMARY KEY,
-        channel_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        saved_path TEXT NULL,
-        FOREIGN KEY (channel_id) REFERENCES channels (id)
-    )
-    """
-    )
-    cursor.execute("PRAGMA table_info(videos)")
-    columns = [row[1] for row in cursor.fetchall()]
-    if "is_unlisted" not in columns:
-        cursor.execute(
-            """
-        ALTER TABLE videos
-        ADD COLUMN is_unlisted INTEGER NOT NULL DEFAULT 0
-        """
-        )
-    if "is_private" not in columns:
-        cursor.execute(
-            """
-        ALTER TABLE videos
-        ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0
-        """
-        )
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS playlists (
-        id TEXT PRIMARY KEY,
-        channel_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        FOREIGN KEY (channel_id) REFERENCES channels (id)
-    )
-    """
-    )
-    # It's possible for a playlist item to be a video that's not related to the
-    # channel that created the playlist.
-    cursor.execute(
-        """
-    CREATE TABLE IF NOT EXISTS playlist_items (
-        id TEXT PRIMARY KEY,
-        playlist_id TEXT NOT NULL,
-        video_id TEXT NOT NULL,
-        channel_id TEXT NOT NULL,
-        title TEXT NOT NULL,
-        is_unlisted INTEGER NOT NULL DEFAULT 0,
-        is_private INTEGER NOT NULL DEFAULT 0,
-        is_external INTEGER NOT NULL DEFAULT 0,
-        is_deleted INTEGER NOT NULL DEFAULT 0,
-        FOREIGN KEY (playlist_id) REFERENCES playlists (id)
-        FOREIGN KEY (video_id) REFERENCES videos (id)
-    )
-    """
-    )
-    return (conn, cursor)
-
-
-def get_video_list(channel_id, cursor, not_downloaded):
-    videos = []
-    query = "SELECT * FROM videos WHERE channel_id = ?"
-    if not_downloaded:
-        query += " AND saved_path IS NULL;"
-    cursor.execute(query, (channel_id,))
-    rows = cursor.fetchall()
-    for row in rows:
-        video = Video.from_row(row)
-        videos.append(video)
-    return videos
+    db.save_channel(cursor, channel_id, channel_name)
+    return channel_id
 
 
 def get_all_video_ids(cursor):
@@ -347,17 +255,17 @@ def get_videos_for_channel(channel_id):
         raise Exception(
             "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set with your API key"
         )
-    (conn, cursor) = create_or_get_db_conn()
+    (conn, cursor) = db.create_or_get_conn()
     channel_name = get_channel_name_from_db(cursor, channel_id)
     download_path = os.path.join(download_root_path, channel_name)
-    videos = get_video_list(channel_id, cursor, False)
+    videos = db.get_videos(channel_id, cursor, False)
     cursor.close()
     conn.close()
     return (videos, download_path, channel_name)
 
 
 def get_playlists_for_channel(youtube, channel_id):
-    (conn, cursor) = create_or_get_db_conn()
+    (conn, cursor) = db.create_or_get_conn()
     channel_name = get_channel_name_from_db(cursor, channel_id)
 
     print(f"Obtaining playlists for {channel_name}")
@@ -407,7 +315,7 @@ def get_playlists_for_channel(youtube, channel_id):
 
 
 def get_playlist_items(youtube, playlists):
-    (conn, cursor) = create_or_get_db_conn()
+    (conn, cursor) = db.create_or_get_conn()
 
     video_ids = get_all_video_ids(cursor)
     for playlist in playlists:
@@ -491,7 +399,7 @@ def get_playlist_items(youtube, playlists):
 
 
 def add_unlisted_video(playlist_item):
-    (conn, cursor) = create_or_get_db_conn()
+    (conn, cursor) = db.create_or_get_conn()
     cursor.execute(
         """
         INSERT OR IGNORE INTO videos (id, channel_id, title, is_unlisted, is_private)
@@ -545,52 +453,50 @@ def get_video_description(download_path, video_id):
         return description
 
 
-def process_list_command(youtube, channel_name, not_downloaded):
-    (conn, cursor) = create_or_get_db_conn()
-    (channel_id, channel_is_cached) = get_channel_info(youtube, cursor, channel_name)
-
-    videos = []
-    print(f"Getting video list for {channel_id}")
-    if channel_is_cached:
-        print(f"Retrieving {channel_id} videos from cache...")
-        videos.extend(get_video_list(channel_id, cursor, not_downloaded))
-    else:
-        print(f"{channel_id} is not cached. Will retrieve video list from YouTube...")
-        next_page_token = None
-        while True:
-            search_response = (
-                youtube.search()
-                .list(
-                    part="id",
-                    channelId=channel_id,
-                    type="video",
-                    maxResults=50,
-                    pageToken=next_page_token,
-                )
-                .execute()
-            )
-            for item in search_response["items"]:
-                video = Video.from_search_response_item(youtube, item)
-                cursor.execute(
-                    """
-                    INSERT OR IGNORE INTO videos (id, channel_id, title)
-                    VALUES (?, ?, ?)
-                    """,
-                    (video.id, channel_id, video.title),
-                )
-                videos.append(video)
-            next_page_token = search_response.get("nextPageToken")
-            if not next_page_token:
-                break
-        conn.commit()
-    cursor.close()
-    conn.close()
+def process_list_videos_command(channel_name, not_downloaded):
+    (_, cursor) = db.create_or_get_conn()
+    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    videos = db.get_videos(channel_id, cursor, not_downloaded)
     for video in videos:
         video.print()
 
 
+def process_get_videos_command(youtube, channel_name):
+    (conn, cursor) = db.create_or_get_conn()
+    channel_id = get_channel_info(youtube, cursor, channel_name)
+
+    next_page_token = None
+    while True:
+        search_response = (
+            youtube.search()
+            .list(
+                part="id",
+                channelId=channel_id,
+                type="video",
+                maxResults=50,
+                pageToken=next_page_token,
+            )
+            .execute()
+        )
+        for item in search_response["items"]:
+            video = Video.from_search_response_item(youtube, item)
+            cursor.execute(
+                """
+                INSERT OR IGNORE INTO videos (id, channel_id, title)
+                VALUES (?, ?, ?)
+                """,
+                (video.id, channel_id, video.title),
+            )
+        next_page_token = search_response.get("nextPageToken")
+        if not next_page_token:
+            break
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
 def process_list_channel_command():
-    (conn, cursor) = create_or_get_db_conn()
+    (conn, cursor) = db.create_or_get_conn()
     cursor.execute("SELECT * FROM channels")
     rows = cursor.fetchall()
     for row in rows:
@@ -642,7 +548,7 @@ def process_download_command(channel_id, skip_ids):
             print(
                 f"Updating {video.id} cache entry to indicate video saved at {full_video_path}"
             )
-            (conn, cursor) = create_or_get_db_conn()
+            (conn, cursor) = db.create_or_get_conn()
             cursor.execute(
                 """
                 UPDATE videos SET saved_path = ? WHERE id = ?
@@ -723,19 +629,21 @@ def main():
         )
     args = get_args()
     youtube = build("youtube", "v3", developerKey=api_key)
-    if args.subcommand == "list":
-        process_list_command(youtube, args.channel_name, args.not_downloaded)
-    elif args.subcommand == "list-channels":
-        process_list_channel_command()
-    elif args.subcommand == "download":
+    if args.subcommand == "download":
         skip_ids = []
         if args.skip_ids:
             skip_ids = args.skip_ids.split(",")
         process_download_command(args.channel_id, skip_ids)
+    elif args.subcommand == "list-channels":
+        process_list_channel_command()
+    elif args.subcommand == "list-videos":
+        process_list_videos_command(args.channel_name, args.not_downloaded)
     elif args.subcommand == "generate-index":
         process_generate_index_command(args.channel_id)
     elif args.subcommand == "get-playlists":
         process_get_playist_command(youtube, args.channel_id, args.add_unlisted)
+    elif args.subcommand == "get-videos":
+        process_get_videos_command(youtube, args.channel_name)
     return 0
 
 
