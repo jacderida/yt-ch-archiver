@@ -1,7 +1,7 @@
 import os
 import sqlite3
 
-from app import Video
+from app import Playlist, Video
 
 
 def create_or_get_conn():
@@ -93,6 +93,52 @@ def save_channel(cursor, channel_id, channel_name):
     )
 
 
+def save_video(cursor, video):
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO videos (id, channel_id, title)
+        VALUES (?, ?, ?)
+        """,
+        (video.id, video.channel_id, video.title),
+    )
+
+
+def save_playlist(cursor, playlist):
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO playlists (id, channel_id, title)
+        VALUES (?, ?, ?)
+        """,
+        (playlist.id, playlist.channel_id, playlist.title),
+    )
+
+
+def save_playlist_item(cursor, playlist_id, playlist_item):
+    is_unlisted = 1 if playlist_item.is_unlisted else 0
+    is_private = 1 if playlist_item.is_private else 0
+    is_external = 1 if playlist_item.is_external else 0
+    is_deleted = 1 if playlist_item.is_deleted else 0
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO playlist_items (
+            id, playlist_id, video_id, channel_id,
+            title, is_unlisted, is_private, is_external, is_deleted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            playlist_item.id,
+            playlist_id,
+            playlist_item.video_id,
+            playlist_item.channel_id,
+            playlist_item.title,
+            is_unlisted,
+            is_private,
+            is_external,
+            is_deleted,
+        ),
+    )
+
+
 def get_channel_id_from_name(cursor, channel_name):
     cursor.execute("SELECT id FROM channels WHERE name = ?", (channel_name,))
     result = cursor.fetchone()
@@ -101,7 +147,17 @@ def get_channel_id_from_name(cursor, channel_name):
     raise Exception(f"{channel_name} is not in the local cache")
 
 
-def get_videos(channel_id, cursor, not_downloaded):
+def get_channel_name_from_id(cursor, channel_id):
+    cursor.execute("SELECT name FROM channels WHERE id = ?", (channel_id,))
+    result = cursor.fetchone()
+    if result:
+        return result[0]
+    raise Exception(
+        f"The cache has no channel with ID {channel_id}. Please run the `list` command to first get a list of videos for the channel."
+    )
+
+
+def get_videos(cursor, channel_id, not_downloaded):
     videos = []
     query = "SELECT * FROM videos WHERE channel_id = ?"
     if not_downloaded:
@@ -114,3 +170,35 @@ def get_videos(channel_id, cursor, not_downloaded):
         video = Video.from_row(row)
         videos.append(video)
     return videos
+
+
+def get_playlists(cursor, channel_id):
+    playlists = []
+    cursor.execute(
+        "SELECT id, title, channel_id FROM playlists WHERE channel_id = ?",
+        (channel_id,),
+    )
+    rows = cursor.fetchall()
+    if len(rows) == 0:
+        raise Exception(
+            f"Playlists have not been retrieved for channel ID {channel_id}"
+        )
+    for row in rows:
+        playlist = Playlist(row[0], row[1], row[2])
+        playlists.append(playlist)
+    return playlists
+
+
+def get_playlist_items(cursor, playlist):
+    cursor.execute(
+        """
+        SELECT id, video_id, channel_id, title, is_unlisted, is_private, is_external, is_deleted
+        FROM playlist_items WHERE playlist_id = ?
+        """,
+        (playlist.id,),
+    )
+    rows = cursor.fetchall()
+    for row in rows:
+        playlist.add_item(
+            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
+        )
