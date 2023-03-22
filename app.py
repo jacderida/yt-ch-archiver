@@ -208,9 +208,9 @@ def get_args():
         "download", help="Download all videos for a channel"
     )
     download_parser.add_argument(
-        "channel_id",
+        "channel_name",
         type=str,
-        help="The ID of the channel whose videos you want to download",
+        help="The name of the channel whose videos you want to download",
     )
     download_parser.add_argument(
         "--skip-ids",
@@ -223,9 +223,9 @@ def get_args():
         help="Generate an index file for the videos downloaded from a channel",
     )
     generate_index_parser.add_argument(
-        "channel_id",
+        "channel_name",
         type=str,
-        help="The ID of the channel for the index you want to generate",
+        help="The name of the channel for the index you want to generate",
     )
 
     get_videos_parser = subparsers.add_parser(
@@ -280,19 +280,19 @@ def get_all_video_ids(cursor):
     return video_ids
 
 
-def get_videos_for_channel(channel_id):
+def get_videos_for_channel(channel_name):
     download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
     if not download_root_path:
         raise Exception(
             "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set with your API key"
         )
     (conn, cursor) = db.create_or_get_conn()
-    channel_name = db.get_channel_name_from_id(cursor, channel_id)
+    channel_id = db.get_channel_id_from_name(cursor, channel_name)
     download_path = os.path.join(download_root_path, channel_name)
-    videos = db.get_videos(channel_id, cursor, False)
+    videos = db.get_videos(cursor, channel_id, False)
     cursor.close()
     conn.close()
-    return (videos, download_path, channel_name)
+    return (videos, download_path)
 
 
 def get_playlists_for_channel(youtube, channel_name):
@@ -478,8 +478,8 @@ def process_list_channel_command():
     conn.close()
 
 
-def process_download_command(channel_id, skip_ids):
-    (videos, download_path, channel_name) = get_videos_for_channel(channel_id)
+def process_download_command(channel_name, skip_ids):
+    (videos, download_path) = get_videos_for_channel(channel_name)
     print(f"Attempting to download videos for {channel_name}...")
     for video in videos:
         if video.saved_path and os.path.exists(video.saved_path):
@@ -531,8 +531,8 @@ def process_download_command(channel_id, skip_ids):
             conn.close()
 
 
-def process_generate_index_command(channel_id):
-    (videos, download_path, channel_name) = get_videos_for_channel(channel_id)
+def process_generate_index_command(channel_name):
+    (videos, download_path) = get_videos_for_channel(channel_name)
     print(f"Generating index for {channel_name}...")
     soup = BeautifulSoup("<html><body></body></html>", "html.parser")
     body = soup.body
@@ -629,9 +629,9 @@ def main():
         skip_ids = []
         if args.skip_ids:
             skip_ids = args.skip_ids.split(",")
-        process_download_command(args.channel_id, skip_ids)
+        process_download_command(args.channel_name, skip_ids)
     elif args.subcommand == "generate-index":
-        process_generate_index_command(args.channel_id)
+        process_generate_index_command(args.channel_name)
     elif args.subcommand == "get-playlists":
         process_get_playist_command(youtube, args.channel_name)
     elif args.subcommand == "get-videos":
