@@ -41,6 +41,17 @@ class Video:
         return Video(id, title, channel_id, "", False, False)
 
     @staticmethod
+    def from_playlist_item(playlist_item):
+        return Video(
+            playlist_item.video_id,
+            playlist_item.title,
+            playlist_item.channel_id,
+            "",
+            playlist_item.is_unlisted,
+            playlist_item.is_private,
+        )
+
+    @staticmethod
     def from_row(row):
         id = row[0]
         channel_id = row[1]
@@ -87,6 +98,7 @@ class Playlist:
             video_id,
             channel_id,
             title,
+            position,
             is_unlisted,
             is_private,
             is_external,
@@ -96,6 +108,7 @@ class Playlist:
             self.video_id = video_id
             self.channel_id = channel_id
             self.title = title
+            self.position = position
             self.is_unlisted = True if is_unlisted == 1 else False
             self.is_private = True if is_private == 1 else False
             self.is_external = True if is_external == 1 else False
@@ -109,9 +122,9 @@ class Playlist:
             elif self.is_deleted:
                 console.print(f"{self.title}", style="red")
             elif self.is_unlisted:
-                console.print(f"{self.title} UNLISTED")
+                console.print(f"{self.title} [UNLISTED]")
             elif self.is_external:
-                console.print(f"{self.title} EXTERNAL")
+                console.print(f"{self.title} [EXTERNAL]")
             else:
                 console.print(f"{self.title}")
 
@@ -128,6 +141,7 @@ class Playlist:
         video_id,
         channel_id,
         title,
+        position,
         is_unlisted,
         is_private,
         is_external,
@@ -138,6 +152,7 @@ class Playlist:
             video_id,
             channel_id,
             title,
+            position,
             is_unlisted,
             is_private,
             is_external,
@@ -182,6 +197,11 @@ def get_args():
         "--add-unlisted",
         action="store_true",
         help="Add unlisted videos from the playlist to the videos cache",
+    )
+    list_playlists_parser.add_argument(
+        "--add-external",
+        action="store_true",
+        help="Add external videos from the playlist to the videos cache",
     )
 
     download_parser = subparsers.add_parser(
@@ -335,10 +355,13 @@ def get_playlist_items(youtube, playlists):
         for item in items:
             video_id = item["snippet"]["resourceId"]["videoId"]
             title = item["snippet"]["title"]
+            position = item["snippet"]["position"]
             if title == "Private video" or title == "Deleted video":
                 channel_id = playlist.channel_id
             else:
                 channel_id = item["snippet"]["videoOwnerChannelId"]
+                channel_name = item["snippet"]["videoOwnerChannelTitle"]
+                db.save_channel(cursor, channel_id, channel_name)
 
             is_external = 1 if channel_id != playlist.channel_id else 0
             is_unlisted = 1 if not is_external and video_id not in video_ids else 0
@@ -349,6 +372,7 @@ def get_playlist_items(youtube, playlists):
                 video_id,
                 channel_id,
                 title,
+                int(position),
                 is_unlisted,
                 is_private,
                 is_external,
@@ -361,21 +385,9 @@ def get_playlist_items(youtube, playlists):
     conn.close()
 
 
-def add_unlisted_video(playlist_item):
+def add_video_from_playlist_item(playlist_item):
     (conn, cursor) = db.create_or_get_conn()
-    cursor.execute(
-        """
-        INSERT OR IGNORE INTO videos (id, channel_id, title, is_unlisted, is_private)
-        VALUES (?, ?, ?, ?)
-        """,
-        (
-            playlist_item.video_id,
-            playlist_item.channel_id,
-            playlist_item.title,
-            1,
-            playlist_item.is_private,
-        ),
-    )
+    db.save_video(cursor, Video.from_playlist_item(playlist_item))
     conn.commit()
     cursor.close()
     conn.close()
@@ -568,7 +580,7 @@ def process_generate_index_command(channel_id):
         f.write(soup.prettify())
 
 
-def process_list_playlists_command(channel_name, add_unlisted):
+def process_list_playlists_command(channel_name, add_unlisted, add_external):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
     playlists = db.get_playlists(cursor, channel_id)
@@ -579,7 +591,10 @@ def process_list_playlists_command(channel_name, add_unlisted):
             item.print()
             if add_unlisted:
                 if item.is_unlisted and not item.is_private and not item.is_deleted:
-                    add_unlisted_video(item)
+                    add_video_from_playlist_item(item)
+            if add_external:
+                if item.is_external:
+                    add_video_from_playlist_item(item)
     conn.commit()
     cursor.close()
     conn.close()
@@ -624,7 +639,9 @@ def main():
     elif args.subcommand == "list-channels":
         process_list_channel_command()
     elif args.subcommand == "list-playlists":
-        process_list_playlists_command(args.channel_name, args.add_unlisted)
+        process_list_playlists_command(
+            args.channel_name, args.add_unlisted, args.add_external
+        )
     elif args.subcommand == "list-videos":
         process_list_videos_command(args.channel_name, args.not_downloaded)
     return 0

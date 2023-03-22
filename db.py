@@ -51,6 +51,7 @@ def create_or_get_conn():
         ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0
         """
         )
+
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS playlists (
@@ -61,8 +62,7 @@ def create_or_get_conn():
     )
     """
     )
-    # It's possible for a playlist item to be a video that's not related to the
-    # channel that created the playlist.
+
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS playlist_items (
@@ -71,6 +71,7 @@ def create_or_get_conn():
         video_id TEXT NOT NULL,
         channel_id TEXT NOT NULL,
         title TEXT NOT NULL,
+        position INTEGER NOT NULL,
         is_unlisted INTEGER NOT NULL DEFAULT 0,
         is_private INTEGER NOT NULL DEFAULT 0,
         is_external INTEGER NOT NULL DEFAULT 0,
@@ -80,6 +81,7 @@ def create_or_get_conn():
     )
     """
     )
+
     return (conn, cursor)
 
 
@@ -96,10 +98,17 @@ def save_channel(cursor, channel_id, channel_name):
 def save_video(cursor, video):
     cursor.execute(
         """
-        INSERT OR IGNORE INTO videos (id, channel_id, title)
-        VALUES (?, ?, ?)
+        INSERT OR IGNORE INTO videos (id, channel_id, title, saved_path, is_unlisted, is_private)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (video.id, video.channel_id, video.title),
+        (
+            video.id,
+            video.channel_id,
+            video.title,
+            video.saved_path,
+            video.is_unlisted,
+            video.is_private,
+        ),
     )
 
 
@@ -122,8 +131,8 @@ def save_playlist_item(cursor, playlist_id, playlist_item):
         """
         INSERT OR IGNORE INTO playlist_items (
             id, playlist_id, video_id, channel_id,
-            title, is_unlisted, is_private, is_external, is_deleted)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            title, position, is_unlisted, is_private, is_external, is_deleted)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             playlist_item.id,
@@ -131,6 +140,7 @@ def save_playlist_item(cursor, playlist_id, playlist_item):
             playlist_item.video_id,
             playlist_item.channel_id,
             playlist_item.title,
+            playlist_item.position,
             is_unlisted,
             is_private,
             is_external,
@@ -192,15 +202,17 @@ def get_playlists(cursor, channel_id):
 def get_playlist_items(cursor, playlist):
     cursor.execute(
         """
-        SELECT id, video_id, channel_id, title, is_unlisted, is_private, is_external, is_deleted
+        SELECT id, video_id, channel_id, title, position, is_unlisted, is_private,
+          is_external, is_deleted
         FROM playlist_items WHERE playlist_id = ?
+        ORDER BY position
         """,
         (playlist.id,),
     )
     rows = cursor.fetchall()
     for row in rows:
         playlist.add_item(
-            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
+            row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]
         )
 
 
