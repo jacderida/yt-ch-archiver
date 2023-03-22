@@ -12,24 +12,39 @@ After you've obtained your key, assign it to the `YT_CH_ARCHIVER_API_KEY` enviro
 
 Set a path for downloading the videos with the `YT_CH_ARCHIVER_ROOT_PATH` environment variable. Directories will be created under here that correspond to the name of each channel.
 
-## Downloading Channel Videos
+## Usage
 
-First get the list of all the videos for the channel by running this command:
+The general usage for this utility is to run `get-X` then `list-X` commands. The former gets information from YouTube and caches it locally, while the latter works on the cached data.
+
+### Downloading Channel Videos
+
+First, get the list of all the videos for the channel:
 ```
-./app.py list <channel-name>
+./app.py get-videos <channel-name>
 ```
 
-Now get the ID of the channel either from the output of the previous command or by running:
+Now retrieve the playlists:
 ```
-./app.py list-channels
+./app.py get-playlists <channel-name>
 ```
+
+Playlists sometimes contain videos that are unlisted on the main channel. They also often contain videos from other channels.
+
+Run this command to cache the information for the unlisted and external videos:
+```
+./app.py list-playlists <channel-name> --add-unlisted --add-external
+```
+
+If you now run `./app.py list-channels` you will see the main channel, plus all the channels that relate to any external videos that were on playlists.
+
+Now it's useful to run `./app.py list-videos <channel-name>`. You will see all the videos for the channel, plus any unlisted videos that were on playlists. Videos that have not yet been downloaded are coloured red, while those that have been downloaded are coloured green. At this point they should all be red.
 
 Now download them:
 ```
-./app.py download <channel-id>
+./app.py download <channel-name>
 ```
 
-The utility will download the video, thumbnail, info and description for each video on the channel list. It configures `yt-dlp` to download the best mp4 video available, and failing that, the best video otherwise available.
+Using `yt-dlp`, the utility will download the video, thumbnail, info and description for each video for that channel. It configures `yt-dlp` to download the best mp4 video available, and failing that, the best video otherwise available.
 
 The videos will be downloaded to `YT_CH_ARCHIVER_ROOT_PATH/channel_name/video`. By default `yt-dlp` uses the title of the video in the filename, but these can be huge and unwieldy. This utility just saves the video using the YouTube ID. For this reason, I added a command to generate a basic HTML file to function as an index, so it's easy to tell which video relates to which ID. Generate the index by running this command:
 ```
@@ -37,19 +52,3 @@ The videos will be downloaded to `YT_CH_ARCHIVER_ROOT_PATH/channel_name/video`. 
 ```
 
 This will output an `index.html` file at `YT_CH_ARCHIVER_ROOT_PATH/channel_name/video/index.html`.
-
-## Get Playlists for the Channel
-
-Obtain the playlists for a channel by running the following command:
-```
-./app.py get-playlists <channel-id>
-```
-
-Playlists can contain videos that are unlisted on the main channel, that have since been made private or been deleted, and they can also contain videos that are external to the channel the playlist is defined on.
-
-To add the unlisted videos to the database, run the command as:
-```
-./app.py get-playlists <channel-id> --add-unlisted
-```
-
-You can then re-run the `download` command and the unlisted videos will be pulled.
