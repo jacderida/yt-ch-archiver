@@ -202,3 +202,14 @@ def get_playlist_items(cursor, playlist):
         playlist.add_item(
             row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7]
         )
+
+
+def delete_playlists(cursor, channel_id):
+    cursor.execute(
+        "DELETE FROM playlist_items WHERE channel_id = ?",
+        (channel_id,),
+    )
+    cursor.execute(
+        "DELETE FROM playlists WHERE channel_id = ?",
+        (channel_id,),
+    )

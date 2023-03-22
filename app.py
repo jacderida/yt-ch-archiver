@@ -225,6 +225,16 @@ def get_args():
         "channel_name",
         help="The name of the channel whose playlists you wish to obtain",
     )
+
+    delete_playlists_parser = subparsers.add_parser(
+        "delete-playlists",
+        help="Deletes all cached playlists for a given channel",
+    )
+    delete_playlists_parser.add_argument(
+        "channel_name",
+        help="The name of the channel whose playlists you wish to delete",
+    )
+
     return parser.parse_args()
 
 
@@ -407,11 +417,13 @@ def get_video_description(download_path, video_id):
 
 
 def process_list_videos_command(channel_name, not_downloaded):
-    (_, cursor) = db.create_or_get_conn()
+    (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
     videos = db.get_videos(cursor, channel_id, not_downloaded)
     for video in videos:
         video.print()
+    cursor.close()
+    conn.close()
 
 
 def process_get_videos_command(youtube, channel_name):
@@ -557,22 +569,35 @@ def process_generate_index_command(channel_id):
 
 
 def process_list_playlists_command(channel_name, add_unlisted):
-    (_, cursor) = db.create_or_get_conn()
+    (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
     playlists = db.get_playlists(cursor, channel_id)
     for playlist in playlists:
-        playlist.print_title()
         db.get_playlist_items(cursor, playlist)
+        playlist.print_title()
         for item in playlist.items:
             item.print()
             if add_unlisted:
                 if item.is_unlisted and not item.is_private and not item.is_deleted:
                     add_unlisted_video(item)
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 def process_get_playist_command(youtube, channel_name):
     playlists = get_playlists_for_channel(youtube, channel_name)
     get_playlist_items(youtube, playlists)
+
+
+def process_delete_playist_command(channel_name):
+    (conn, cursor) = db.create_or_get_conn()
+    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    db.delete_playlists(cursor, channel_id)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"Deleted playlists for {channel_name}")
 
 
 def main():
@@ -583,23 +608,25 @@ def main():
         )
     args = get_args()
     youtube = build("youtube", "v3", developerKey=api_key)
-    if args.subcommand == "download":
+    if args.subcommand == "delete-playlists":
+        process_delete_playist_command(args.channel_name)
+    elif args.subcommand == "download":
         skip_ids = []
         if args.skip_ids:
             skip_ids = args.skip_ids.split(",")
         process_download_command(args.channel_id, skip_ids)
-    elif args.subcommand == "list-channels":
-        process_list_channel_command()
-    elif args.subcommand == "list-playlists":
-        process_list_playlists_command(args.channel_name, args.add_unlisted)
-    elif args.subcommand == "list-videos":
-        process_list_videos_command(args.channel_name, args.not_downloaded)
     elif args.subcommand == "generate-index":
         process_generate_index_command(args.channel_id)
     elif args.subcommand == "get-playlists":
         process_get_playist_command(youtube, args.channel_name)
     elif args.subcommand == "get-videos":
         process_get_videos_command(youtube, args.channel_name)
+    elif args.subcommand == "list-channels":
+        process_list_channel_command()
+    elif args.subcommand == "list-playlists":
+        process_list_playlists_command(args.channel_name, args.add_unlisted)
+    elif args.subcommand == "list-videos":
+        process_list_videos_command(args.channel_name, args.not_downloaded)
     return 0
 
 
