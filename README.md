@@ -37,7 +37,7 @@ Run this command to cache the information for the unlisted and external videos:
 
 If you now run `./app.py list-channels` you will see the main channel, plus all the channels that relate to any external videos that were on playlists.
 
-Now it's useful to run `./app.py list-videos <channel-name>`. You will see all the videos for the channel, plus any unlisted videos that were on playlists. Videos that have not yet been downloaded are coloured red, while those that have been downloaded are coloured green. At this point they should all be red.
+Now it's useful to run `./app.py list-videos <channel-name>`. You will see all the videos for the channel, plus any unlisted videos that were on playlists. Videos not yet downloaded are coloured red, while those that have been are coloured green. At this point they should all be red.
 
 Now download them:
 ```

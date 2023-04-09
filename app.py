@@ -431,6 +431,7 @@ def get_video_description(download_path, video_id):
 def process_list_videos_command(channel_name, not_downloaded):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    print(f"{channel_id}")
     videos = db.get_videos(cursor, channel_id, not_downloaded)
     for video in videos:
         video.print()
@@ -481,6 +482,7 @@ def process_list_channel_command():
 def process_download_command(channel_name, skip_ids):
     (videos, download_path) = get_videos_for_channel(channel_name)
     print(f"Attempting to download videos for {channel_name}...")
+    failed_videos = {}
     for video in videos:
         if video.saved_path and os.path.exists(video.saved_path):
             print(f"{video.id} has already been downloaded. Skipping.")
@@ -512,7 +514,13 @@ def process_download_command(channel_name, skip_ids):
             "writethumbnail": True,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video.get_url()])
+            try:
+                ydl.download([video.get_url()])
+            except Exception as e:
+                print(f"Failed to download {video.id}:")
+                print(e)
+                failed_videos[video.id] = e
+                continue
             full_video_path = get_full_video_path(
                 os.path.join(download_path, "video"), video.id
             )
@@ -529,6 +537,8 @@ def process_download_command(channel_name, skip_ids):
             conn.commit()
             cursor.close()
             conn.close()
+    for video_id in failed_videos:
+        print(f"Failed to download {video_id}: {failed_videos[video_id]}")
 
 
 def process_generate_index_command(channel_name):
