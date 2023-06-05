@@ -20,6 +20,32 @@ from rich.theme import Theme
 FORMAT_SELECTION = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b"
 
 
+class WordHighlighter(RegexHighlighter):
+    base_style = "hl."
+    highlights = [r"(?P<word_unlisted>UNLISTED)",
+                 "(?P<word_external>EXTERNAL)"]
+
+
+def print_video(video_id, title, is_unlisted, is_private, is_external, is_downloaded):
+    theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
+    console = Console(highlighter=WordHighlighter(), theme=theme)
+    msg = f"{video_id}: {title}"
+    if is_unlisted or is_private:
+        msg += " ["
+        if is_unlisted:
+            msg += "UNLISTED, "
+        if is_private:
+            msg += "PRIVATE, "
+        if is_external:
+            msg += "EXTERNAL"
+        msg = msg.removesuffix(", ")
+        msg += "]"
+    if is_downloaded:
+        console.print(msg, style="green")
+    else:
+        console.print(msg, style="red")
+
+
 class Video:
     def __init__(self, id, title, channel_id, saved_path, is_unlisted, is_private):
         self.id = id
@@ -62,26 +88,8 @@ class Video:
         return Video(id, title, channel_id, saved_path, is_unlisted, is_private)
 
     def print(self):
-        theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
-        console = Console(highlighter=WordHighlighter(), theme=theme)
-        msg = f"{self.id}: {self.title}"
-        if self.is_unlisted or self.is_private:
-            msg += " ["
-            if self.is_unlisted:
-                msg += "UNLISTED, "
-            if self.is_private:
-                msg += "PRIVATE"
-            msg = msg.removesuffix(", ")
-            msg += "]"
-        if self.saved_path:
-            console.print(msg, style="green")
-        else:
-            console.print(msg, style="red")
-
-
-class WordHighlighter(RegexHighlighter):
-    base_style = "hl."
-    highlights = [r"(?P<word_unlisted>UNLISTED)", "(?P<word_external>EXTERNAL)"]
+        is_downloaded = True if self.saved_path else False
+        print_video(self.id, self.title, self.is_unlisted, self.is_private, False, is_downloaded)
 
 
 class Playlist:
@@ -594,6 +602,7 @@ def process_list_playlists_command(channel_name, add_unlisted, add_external):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
     playlists = db.get_playlists(cursor, channel_id)
+    video_ids = db.get_all_downloaded_video_ids(cursor)
     for playlist in playlists:
         db.get_playlist_items(cursor, playlist)
         playlist.print_title()

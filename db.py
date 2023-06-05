@@ -216,6 +216,16 @@ def get_playlist_items(cursor, playlist):
         )
 
 
+def get_all_downloaded_video_ids(cursor):
+    cursor.execute(
+        """
+        SELECT id FROM videos WHERE saved_path NOT NULL
+        """
+    )
+    rows = cursor.fetchall()
+    return [row[0] for row in rows]
+
+
 def delete_playlists(cursor, channel_id):
     cursor.execute(
         "DELETE FROM playlist_items WHERE channel_id = ?",
