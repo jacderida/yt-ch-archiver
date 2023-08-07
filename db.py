@@ -6,7 +6,7 @@ from app import Playlist, Video
 
 def create_or_get_conn():
     if "HOME" in os.environ:
-        app_data_path = os.path.join(os.environ["HOME"], ".local", "yt-ch-archiver")
+        app_data_path = os.path.join(os.environ["HOME"], ".local", "share", "yt-ch-archiver")
     elif "APPDATA" in os.environ:
         app_data_path = os.path.join(os.environ["APPDATA"], "yt-ch-archiver")
     else:
