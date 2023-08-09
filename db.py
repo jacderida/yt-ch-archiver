@@ -152,6 +152,18 @@ def save_playlist_item(cursor, playlist_id, playlist_item):
     )
 
 
+def save_video_path(cursor, full_video_path, video_id):
+    print(
+        f"Updating {video_id} cache entry to indicate video saved at {full_video_path}"
+    )
+    cursor.execute(
+        """
+        UPDATE videos SET saved_path = ? WHERE id = ?
+        """,
+        (full_video_path, video_id),
+    )
+
+
 def get_channel_id_from_name(cursor, channel_name):
     cursor.execute("SELECT id FROM channels WHERE name = ?", (channel_name,))
     result = cursor.fetchone()
@@ -183,6 +195,27 @@ def get_videos(cursor, channel_id, not_downloaded):
         video = Video.from_row(row)
         videos.append(video)
     return videos
+
+
+def get_downloaded_videos(cursor):
+    videos = []
+    query = "SELECT * FROM videos WHERE saved_path IS NOT NULL"
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    for row in rows:
+        video = Video.from_row(row)
+        videos.append(video)
+    return videos
+
+
+def get_channels(cursor):
+    channels = {}
+    query = "SELECT * FROM channels"
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    for row in rows:
+        channels[row[0]] = row[1]
+    return channels
 
 
 def get_playlists(cursor, channel_id):

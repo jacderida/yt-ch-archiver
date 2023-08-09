@@ -10,6 +10,7 @@ import yt_dlp
 
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
+from pathlib import Path
 from rich.console import Console
 from rich.highlighter import RegexHighlighter
 from rich.text import Text
@@ -181,10 +182,11 @@ def get_args():
 
     videos_parser = subparsers.add_parser("videos", help="Manage videos")
     videos_subparser = videos_parser.add_subparsers(dest="videos_command")
+    videos_subparser.add_parser("get", help="Use the YouTube API to get a list of the videos for a channel").add_argument("channel_name", help="The name of the channel")
+    videos_subparser.add_parser("update-root-path", help="Update the root path of all the videos to the currently set path. This is useful if you've changed the root.")
     ls_parser = videos_subparser.add_parser("ls", help="List all the videos in the cache")
     ls_parser.add_argument("channel_name", help="The name of the channel")
     ls_parser.add_argument("--not-downloaded", action="store_true", help="Display only videos that haven't yet been downloaded")
-    videos_subparser.add_parser("get", help="Use the YouTube API to get a list of the videos for a channel").add_argument("channel_name", help="The name of the channel")
     download_parser = videos_subparser.add_parser("download", help="Download all the listed videos for a channel")
     download_parser.add_argument("channel_name", help="The name of the channel")
     download_parser.add_argument("--skip-ids", type=str, help="A comma-separated list of video IDs to skip")
@@ -228,7 +230,7 @@ def get_videos_for_channel(channel_name):
     download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
     if not download_root_path:
         raise Exception(
-            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set with your API key"
+            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
         )
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
@@ -383,6 +385,30 @@ def process_list_videos_command(channel_name, not_downloaded):
     conn.close()
 
 
+def process_update_root_path_command():
+    download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
+    if not download_root_path:
+        raise Exception(
+            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
+        )
+    download_root_path = Path(download_root_path)
+    (conn, cursor) = db.create_or_get_conn()
+    videos = db.get_downloaded_videos(cursor)
+    channels = db.get_channels(cursor)
+    for video in videos:
+        if video.saved_path:
+            current_path = Path(video.saved_path)
+            current_root_path = Path(video.saved_path).parent.parent.parent
+            if download_root_path != current_root_path:
+                new_path = download_root_path.joinpath(
+                    channels[video.channel_id]).joinpath("video").joinpath(current_path.name)
+                db.save_video_path(cursor, str(new_path), video.id)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    pass
+
+
 def process_get_videos_command(youtube, channel_name):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = get_channel_info(youtube, cursor, channel_name)
@@ -460,27 +486,18 @@ def process_download_command(channel_name, skip_ids):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 ydl.download([video.get_url()])
+                full_video_path = get_full_video_path(
+                    os.path.join(download_path, "video"), video.id
+                )
+                (conn, cursor) = db.create_or_get_conn()
+                db.save_video_path(cursor, full_video_path, video.id)
+                cursor.close()
+                conn.close()
             except Exception as e:
                 print(f"Failed to download {video.id}:")
                 print(e)
                 failed_videos[video.id] = e
                 continue
-            full_video_path = get_full_video_path(
-                os.path.join(download_path, "video"), video.id
-            )
-            print(
-                f"Updating {video.id} cache entry to indicate video saved at {full_video_path}"
-            )
-            (conn, cursor) = db.create_or_get_conn()
-            cursor.execute(
-                """
-                UPDATE videos SET saved_path = ? WHERE id = ?
-                """,
-                (full_video_path, video.id),
-            )
-            conn.commit()
-            cursor.close()
-            conn.close()
     for video_id in failed_videos:
         print(f"Failed to download {video_id}: {failed_videos[video_id]}")
 
@@ -593,6 +610,8 @@ def main():
             process_get_videos_command(youtube, args.channel_name)
         elif args.videos_command == "ls":
             process_list_videos_command(args.channel_name, args.not_downloaded)
+        elif args.videos_command == "update-root-path":
+            process_update_root_path_command()
     elif args.command_group == "playlists":
         if args.playlists_command == "download":
             raise Exception("Not implemented yet")
