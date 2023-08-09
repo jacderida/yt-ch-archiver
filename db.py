@@ -5,15 +5,18 @@ from app import Playlist, Video
 
 
 def create_or_get_conn():
-    if "HOME" in os.environ:
-        app_data_path = os.path.join(os.environ["HOME"], ".local", "share", "yt-ch-archiver")
-    elif "APPDATA" in os.environ:
-        app_data_path = os.path.join(os.environ["APPDATA"], "yt-ch-archiver")
+    if "YT_CH_ARCHIVER_DB_PATH":
+        database_path = os.environ["YT_CH_ARCHIVER_DB_PATH"]
     else:
-        raise Exception("Could not find home directory")
-    if not os.path.exists(app_data_path):
-        os.makedirs(app_data_path)
-    database_path = os.path.join(app_data_path, "videos.db")
+        if "HOME" in os.environ:
+            app_data_path = os.path.join(os.environ["HOME"], ".local", "share", "yt-ch-archiver")
+        elif "APPDATA" in os.environ:
+            app_data_path = os.path.join(os.environ["APPDATA"], "yt-ch-archiver")
+        else:
+            raise Exception("Could not find home directory")
+        if not os.path.exists(app_data_path):
+            os.makedirs(app_data_path)
+        database_path = os.path.join(app_data_path, "videos.db")
     conn = sqlite3.connect(database_path)
     cursor = conn.cursor()
     cursor.execute(
