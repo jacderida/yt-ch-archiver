@@ -171,97 +171,33 @@ class Playlist:
 
 
 def get_args():
-    parser = argparse.ArgumentParser(description="YouTube Channel Archiver")
-    subparsers = parser.add_subparsers(title="subcommands", dest="subcommand")
-    subparsers.add_parser(
-        "list-channels", help="List all the channels that have been used"
-    )
+    parser = argparse.ArgumentParser(description="Command-line interface for managing channels, videos, and playlists.")
+    subparsers = parser.add_subparsers(dest="command_group", help="Sub-command help")
 
-    list_videos_parser = subparsers.add_parser(
-        "list-videos",
-        help="List all the locally cached videos for a channel. Green rows indicate the video has been downloaded, while those in red have not.",
-    )
-    list_videos_parser.add_argument(
-        "channel_name",
-        type=str,
-        help="The name of the channel whose videos you want to list",
-    )
-    list_videos_parser.add_argument(
-        "--not-downloaded",
-        action="store_true",
-        help="Filter the list to only show videos not downloaded yet",
-    )
+    channels_parser = subparsers.add_parser("channels", help="Manage channels")
+    channels_subparser = channels_parser.add_subparsers(dest="channels_command")
+    channels_subparser.add_parser("ls", help="List all the channels in the cache")
+    channels_subparser.add_parser("generate-index", help="Generate index for a channel").add_argument("channel_name", help="The name of the channel")
 
-    list_playlists_parser = subparsers.add_parser(
-        "list-playlists",
-        help="List all the locally cached playlists for a channel",
-    )
-    list_playlists_parser.add_argument(
-        "channel_name",
-        type=str,
-        help="The name of the channel whose playlists you want to list",
-    )
-    list_playlists_parser.add_argument(
-        "--add-unlisted",
-        action="store_true",
-        help="Add unlisted videos from the playlist to the videos cache",
-    )
-    list_playlists_parser.add_argument(
-        "--add-external",
-        action="store_true",
-        help="Add external videos from the playlist to the videos cache",
-    )
+    videos_parser = subparsers.add_parser("videos", help="Manage videos")
+    videos_subparser = videos_parser.add_subparsers(dest="videos_command")
+    ls_parser = videos_subparser.add_parser("ls", help="List all the videos in the cache")
+    ls_parser.add_argument("channel_name", help="The name of the channel")
+    ls_parser.add_argument("--not-downloaded", action="store_true", help="Display only videos that haven't yet been downloaded")
+    videos_subparser.add_parser("get", help="Use the YouTube API to get a list of the videos for a channel").add_argument("channel_name", help="The name of the channel")
+    download_parser = videos_subparser.add_parser("download", help="Download all the listed videos for a channel")
+    download_parser.add_argument("channel_name", help="The name of the channel")
+    download_parser.add_argument("--skip-ids", type=str, help="A comma-separated list of video IDs to skip")
 
-    download_parser = subparsers.add_parser(
-        "download", help="Download all videos for a channel"
-    )
-    download_parser.add_argument(
-        "channel_name",
-        type=str,
-        help="The name of the channel whose videos you want to download",
-    )
-    download_parser.add_argument(
-        "--skip-ids",
-        type=str,
-        help="A comma-separated list of video IDs to skip",
-    )
-
-    generate_index_parser = subparsers.add_parser(
-        "generate-index",
-        help="Generate an index file for the videos downloaded from a channel",
-    )
-    generate_index_parser.add_argument(
-        "channel_name",
-        type=str,
-        help="The name of the channel for the index you want to generate",
-    )
-
-    get_videos_parser = subparsers.add_parser(
-        "get-videos",
-        help="Obtain a list of all the videos for a channel and cache the list locally",
-    )
-    get_videos_parser.add_argument(
-        "channel_name",
-        help="The name of the channel whose playlists you wish to obtain",
-    )
-
-    get_playlists_parser = subparsers.add_parser(
-        "get-playlists",
-        help="Obtain a list of all the playlists for a channel and cache the list locally",
-    )
-    get_playlists_parser.add_argument(
-        "channel_name",
-        help="The name of the channel whose playlists you wish to obtain",
-    )
-
-    delete_playlists_parser = subparsers.add_parser(
-        "delete-playlists",
-        help="Deletes all cached playlists for a given channel",
-    )
-    delete_playlists_parser.add_argument(
-        "channel_name",
-        help="The name of the channel whose playlists you wish to delete",
-    )
+    playlists_parser = subparsers.add_parser("playlists", help="Manage playlists")
+    playlists_subparser = playlists_parser.add_subparsers(dest="playlists_command")
+    ls_playlist_parser = playlists_subparser.add_parser("ls", help="List playlists for a channel")
+    ls_playlist_parser.add_argument("channel_name", help="The name of the channel")
+    ls_playlist_parser.add_argument("--add-unlisted", action="store_true", help="Add unlisted videos to the cache")
+    ls_playlist_parser.add_argument("--add-external", action="store_true", help="Add videos that are external to the channel to the cache")
+    playlists_subparser.add_parser("get", help="Get playlists for a channel").add_argument("channel_name", help="The name of the channel")
+    playlists_subparser.add_parser("download", help="Download playlists for a channel").add_argument("channel_name", help="The name of the channel")
+    playlists_subparser.add_parser("delete", help="Delete playlists for a channel").add_argument("channel_name", help="The name of the channel")
 
     return parser.parse_args()
 
@@ -642,27 +578,30 @@ def main():
         )
     args = get_args()
     youtube = build("youtube", "v3", developerKey=api_key)
-    if args.subcommand == "delete-playlists":
-        process_delete_playist_command(args.channel_name)
-    elif args.subcommand == "download":
-        skip_ids = []
-        if args.skip_ids:
-            skip_ids = args.skip_ids.split(",")
-        process_download_command(args.channel_name, skip_ids)
-    elif args.subcommand == "generate-index":
-        process_generate_index_command(args.channel_name)
-    elif args.subcommand == "get-playlists":
-        process_get_playist_command(youtube, args.channel_name)
-    elif args.subcommand == "get-videos":
-        process_get_videos_command(youtube, args.channel_name)
-    elif args.subcommand == "list-channels":
-        process_list_channel_command()
-    elif args.subcommand == "list-playlists":
-        process_list_playlists_command(
-            args.channel_name, args.add_unlisted, args.add_external
-        )
-    elif args.subcommand == "list-videos":
-        process_list_videos_command(args.channel_name, args.not_downloaded)
+    if args.command_group == "channels":
+        if args.channels_command == "generate-index":
+            process_generate_index_command(args.channel_name)
+        elif args.channels_command == "ls":
+            process_list_channel_command()
+    elif args.command_group == "videos":
+        if args.videos_command == "download":
+            skip_ids = []
+            if args.skip_ids:
+                skip_ids = args.skip_ids.split(",")
+            process_download_command(args.channel_name, skip_ids)
+        elif args.videos_command == "get":
+            process_get_videos_command(youtube, args.channel_name)
+        elif args.videos_command == "ls":
+            process_list_videos_command(args.channel_name, args.not_downloaded)
+    elif args.command_group == "playlists":
+        if args.playlists_command == "download":
+            raise Exception("Not implemented yet")
+        elif args.playlists_command == "get":
+            process_get_playist_command(youtube, args.channel_name)
+        elif args.playlists_command == "ls":
+            process_list_playlists_command(args.channel_name, args.add_unlisted, args.add_external)
+        elif args.playlists_command == "delete":
+            process_delete_playist_command(args.channel_name)
     return 0
 
 
