@@ -1,7 +1,7 @@
 import os
 import sqlite3
 
-from app import Playlist, Video
+from models import Playlist, Video
 
 
 def create_or_get_conn():
@@ -52,6 +52,13 @@ def create_or_get_conn():
             """
         ALTER TABLE videos
         ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0
+        """
+        )
+    if "download_error" not in columns:
+        cursor.execute(
+            """
+        ALTER TABLE videos
+        ADD COLUMN download_error TEXT NULL
         """
         )
 
@@ -161,6 +168,18 @@ def save_video_path(cursor, full_video_path, video_id):
         UPDATE videos SET saved_path = ? WHERE id = ?
         """,
         (full_video_path, video_id),
+    )
+
+
+def save_download_error(cursor, video_id, download_error):
+    print(
+        f"Updating {video_id} cache entry with download error"
+    )
+    cursor.execute(
+        """
+        UPDATE videos SET download_error = ? WHERE id = ?
+        """,
+        (download_error, video_id),
     )
 
 

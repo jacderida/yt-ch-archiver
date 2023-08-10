@@ -1,3 +1,4 @@
+from datetime import datetime
 from rich.console import Console
 from rich.highlighter import RegexHighlighter
 from rich.text import Text
@@ -38,6 +39,7 @@ class Video:
         self.saved_path = saved_path
         self.is_unlisted = is_unlisted
         self.is_private = is_private
+        self.download_error = ""
 
     def get_url(self):
         return f"http://www.youtube.com/watch?v={self.id}"
@@ -152,3 +154,56 @@ class Playlist:
         )
         self.items.append(item)
         return item
+
+
+class SyncReport:
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.videos_downloaded = {}
+        self.failed_downloads = {}
+        self.finish_time = None
+
+    def _generate_report(self):
+        report = []
+
+        report.append("###############################################")
+        report.append("#####                                     #####")
+        report.append("#####               SYNC REPORT           #####")
+        report.append("#####                                     #####")
+        report.append("###############################################")
+        report.append("Started: " + str(self.start_time))
+        report.append("Finished: " + str(self.finish_time))
+        
+        report.append("\n################################")
+        report.append("###### DOWNLOADED VIDEOS #######")
+        report.append("################################")
+        for channel, videos in self.videos_downloaded.items():
+            small_banner = ""
+            for _ in channel:
+                small_banner += "="
+            report.append(f"{small_banner}")
+            report.append(f"{channel}")
+            report.append(f"{small_banner}")
+            for video in videos:
+                report.append(f"{video.id}: {video.title}")
+
+        report.append("\n############################")
+        report.append("###### FAILED VIDEOS #######")
+        report.append("############################")
+        for channel, videos in self.failed_downloads.items():
+            small_banner = ""
+            for _ in channel:
+                small_banner += "="
+            report.append(f"{small_banner}")
+            report.append(f"{channel}")
+            report.append(f"{small_banner}")
+            for video in videos:
+                report.append(f"{video.id}: {video.title} -- {video.download_error}")
+        return "\n".join(report)
+
+    def print(self):
+        print(self._generate_report())
+
+    def save(self, file_path):
+        with open(file_path, 'w') as file:
+            file.write(self._generate_report())

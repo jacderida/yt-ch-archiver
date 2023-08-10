@@ -10,8 +10,9 @@ import yt
 import yt_dlp
 
 from bs4 import BeautifulSoup
+from datetime import datetime
 from googleapiclient.discovery import build
-from models import Playlist, Video
+from models import SyncReport, Video
 from pathlib import Path
 
 # According to the yt-dlp documentation, this format selection will get the
@@ -27,6 +28,7 @@ def get_args():
     channels_subparser = channels_parser.add_subparsers(dest="channels_command")
     channels_subparser.add_parser("ls", help="List all the channels in the cache")
     channels_subparser.add_parser("generate-index", help="Generate index for a channel").add_argument("channel_name", help="The name of the channel")
+    channels_subparser.add_parser("sync").add_argument("channel_names", nargs='+')
 
     videos_parser = subparsers.add_parser("videos", help="Manage videos")
     videos_subparser = videos_parser.add_subparsers(dest="videos_command")
@@ -50,6 +52,70 @@ def get_args():
     playlists_subparser.add_parser("delete", help="Delete playlists for a channel").add_argument("channel_name", help="The name of the channel")
 
     return parser.parse_args()
+
+
+# 
+# Helpers
+#
+def download_videos_for_channel(channel_name, skip_ids):
+    (videos, download_path) = get_videos_for_channel(channel_name)
+    print(f"Attempting to download videos for {channel_name}...")
+    downloaded_videos = []
+    failed_videos = []
+    for video in videos:
+        if video.saved_path and os.path.exists(video.saved_path):
+            print(f"{video.id} has already been downloaded. Skipping.")
+            continue
+        if video.is_private:
+            print(f"{video.id} is a private video. Skipping.")
+            continue
+        if video.id in skip_ids:
+            print(f"{video.id} was on skip list. Skipping.")
+            continue
+        ydl_opts = {
+            "continue": True,
+            "cookiesfrombrowser": ("firefox",),
+            "format": FORMAT_SELECTION,
+            "outtmpl": {
+                "default": "%(id)s.%(ext)s",
+                "description": "%(id)s.%(ext)s",
+                "infojson": "%(id)s.%(ext)s",
+            },
+            "paths": {
+                "home": os.path.join(download_path, "video"),
+                "description": os.path.join(download_path, "description"),
+                "infojson": os.path.join(download_path, "info"),
+            },
+            "nooverwrites": True,
+            "nopart": True,
+            "writedescription": True,
+            "writeinfojson": True,
+            "writethumbnail": True,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                ydl.download([video.get_url()])
+                full_video_path = get_full_video_path(
+                    os.path.join(download_path, "video"), video.id
+                )
+                (conn, cursor) = db.create_or_get_conn()
+                db.save_video_path(cursor, full_video_path, video.id)
+                conn.commit()
+                cursor.close()
+                conn.close()
+                downloaded_videos.append(video)
+            except Exception as e:
+                print(f"Failed to download {video.id}:")
+                print(e)
+                (conn, cursor) = db.create_or_get_conn()
+                video.download_error = str(e)
+                db.save_download_error(cursor, video.id, str(e))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                failed_videos.append(video)
+                continue
+    return (downloaded_videos, failed_videos)
 
 
 def get_videos_for_channel(channel_name):
@@ -101,6 +167,10 @@ def get_video_description(download_path, video_id):
         description = f.read()
         return description
 
+
+#
+# Command Processing
+#
 
 def process_list_videos_command(channel_name, not_downloaded):
     (conn, cursor) = db.create_or_get_conn()
@@ -161,57 +231,23 @@ def process_list_channel_command():
     conn.close()
 
 
+def process_sync_command(youtube, channel_names):
+    report = SyncReport()
+    for channel_name in channel_names:
+        process_get_videos_command(youtube, channel_name)
+        process_get_playists_command(youtube, channel_name)
+        (downloaded_videos, failed_videos) = download_videos_for_channel(channel_name, [])
+        report.videos_downloaded[channel_name] = downloaded_videos
+        report.failed_downloads[channel_name] = failed_videos
+    report.finish_time = datetime.now()
+    report.print()
+    report.save("report.txt")
+
+
 def process_download_command(channel_name, skip_ids):
-    (videos, download_path) = get_videos_for_channel(channel_name)
-    print(f"Attempting to download videos for {channel_name}...")
-    failed_videos = {}
-    for video in videos:
-        if video.saved_path and os.path.exists(video.saved_path):
-            print(f"{video.id} has already been downloaded. Skipping.")
-            continue
-        if video.is_private:
-            print(f"{video.id} is a private video. Skipping.")
-            continue
-        if video.id in skip_ids:
-            print(f"{video.id} was on skip list. Skipping.")
-            continue
-        ydl_opts = {
-            "continue": True,
-            "cookiesfrombrowser": ("firefox",),
-            "format": FORMAT_SELECTION,
-            "outtmpl": {
-                "default": "%(id)s.%(ext)s",
-                "description": "%(id)s.%(ext)s",
-                "infojson": "%(id)s.%(ext)s",
-            },
-            "paths": {
-                "home": os.path.join(download_path, "video"),
-                "description": os.path.join(download_path, "description"),
-                "infojson": os.path.join(download_path, "info"),
-            },
-            "nooverwrites": True,
-            "nopart": True,
-            "writedescription": True,
-            "writeinfojson": True,
-            "writethumbnail": True,
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                ydl.download([video.get_url()])
-                full_video_path = get_full_video_path(
-                    os.path.join(download_path, "video"), video.id
-                )
-                (conn, cursor) = db.create_or_get_conn()
-                db.save_video_path(cursor, full_video_path, video.id)
-                cursor.close()
-                conn.close()
-            except Exception as e:
-                print(f"Failed to download {video.id}:")
-                print(e)
-                failed_videos[video.id] = e
-                continue
-    for video_id in failed_videos:
-        print(f"Failed to download {video_id}: {failed_videos[video_id]}")
+    (_, failed_videos) = download_videos_for_channel(channel_name, skip_ids)
+    for video in failed_videos:
+        print(f"Failed to download {video.id}: {video.download_error}")
 
 
 def process_generate_index_command(channel_name):
@@ -283,7 +319,7 @@ def process_list_playlists_command(channel_name, add_unlisted, add_external):
     conn.close()
 
 
-def process_get_playist_command(youtube, channel_name):
+def process_get_playists_command(youtube, channel_name):
     print(f"Getting playlists {channel_name} from YouTube")
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
@@ -325,6 +361,8 @@ def main():
             process_generate_index_command(args.channel_name)
         elif args.channels_command == "ls":
             process_list_channel_command()
+        elif args.channels_command == "sync":
+            process_sync_command(youtube, args.channel_names)
     elif args.command_group == "videos":
         if args.videos_command == "download":
             skip_ids = []
@@ -341,7 +379,7 @@ def main():
         if args.playlists_command == "download":
             raise Exception("Not implemented yet")
         elif args.playlists_command == "get":
-            process_get_playist_command(youtube, args.channel_name)
+            process_get_playists_command(youtube, args.channel_name)
         elif args.playlists_command == "ls":
             process_list_playlists_command(args.channel_name, args.add_unlisted, args.add_external)
         elif args.playlists_command == "delete":
