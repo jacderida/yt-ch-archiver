@@ -5,170 +5,18 @@ import glob
 import os
 import sys
 import db
+import yt
 
 import yt_dlp
 
 from bs4 import BeautifulSoup
 from googleapiclient.discovery import build
+from models import Playlist, Video
 from pathlib import Path
-from rich.console import Console
-from rich.highlighter import RegexHighlighter
-from rich.text import Text
-from rich.theme import Theme
 
 # According to the yt-dlp documentation, this format selection will get the
 # best mp4 video available, or failing that, the best video otherwise available.
 FORMAT_SELECTION = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b"
-
-
-class WordHighlighter(RegexHighlighter):
-    base_style = "hl."
-    highlights = [r"(?P<word_unlisted>UNLISTED)",
-                 "(?P<word_external>EXTERNAL)"]
-
-
-def print_video(video_id, title, is_unlisted, is_private, is_external, is_downloaded):
-    theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
-    console = Console(highlighter=WordHighlighter(), theme=theme)
-    msg = f"{video_id}: {title}"
-    if is_unlisted or is_private:
-        msg += " ["
-        if is_unlisted:
-            msg += "UNLISTED, "
-        if is_private:
-            msg += "PRIVATE, "
-        if is_external:
-            msg += "EXTERNAL"
-        msg = msg.removesuffix(", ")
-        msg += "]"
-    if is_downloaded:
-        console.print(msg, style="green")
-    else:
-        console.print(msg, style="red")
-
-
-class Video:
-    def __init__(self, id, title, channel_id, saved_path, is_unlisted, is_private):
-        self.id = id
-        self.title = title
-        self.channel_id = channel_id
-        self.saved_path = saved_path
-        self.is_unlisted = is_unlisted
-        self.is_private = is_private
-
-    def get_url(self):
-        return f"http://www.youtube.com/watch?v={self.id}"
-
-    @staticmethod
-    def from_search_response_item(youtube, item, channel_id):
-        id = item["id"]["videoId"]
-        response = youtube.videos().list(part="snippet", id=id).execute()
-        title = response["items"][0]["snippet"]["title"]
-        print(f"Retrieved {id}: {title}")
-        return Video(id, title, channel_id, "", False, False)
-
-    @staticmethod
-    def from_playlist_item(playlist_item):
-        return Video(
-            playlist_item.video_id,
-            playlist_item.title,
-            playlist_item.channel_id,
-            "",
-            playlist_item.is_unlisted,
-            playlist_item.is_private,
-        )
-
-    @staticmethod
-    def from_row(row):
-        id = row[0]
-        channel_id = row[1]
-        title = row[2]
-        saved_path = row[3]
-        is_unlisted = row[4]
-        is_private = row[5]
-        return Video(id, title, channel_id, saved_path, is_unlisted, is_private)
-
-    def print(self):
-        is_downloaded = True if self.saved_path else False
-        print_video(self.id, self.title, self.is_unlisted, self.is_private, False, is_downloaded)
-
-
-class Playlist:
-    def __init__(self, id, title, channel_id):
-        self.id = id
-        self.title = title
-        self.channel_id = channel_id
-        self.items = []
-
-    class PlaylistItem:
-        def __init__(
-            self,
-            id,
-            video_id,
-            channel_id,
-            title,
-            position,
-            is_unlisted,
-            is_private,
-            is_external,
-            is_deleted,
-        ):
-            self.id = id
-            self.video_id = video_id
-            self.channel_id = channel_id
-            self.title = title
-            self.position = position
-            self.is_unlisted = True if is_unlisted == 1 else False
-            self.is_private = True if is_private == 1 else False
-            self.is_external = True if is_external == 1 else False
-            self.is_deleted = True if is_deleted == 1 else False
-
-        def print(self):
-            theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
-            console = Console(highlighter=WordHighlighter(), theme=theme)
-            if self.is_private:
-                console.print(f"{self.title}", style="red")
-            elif self.is_deleted:
-                console.print(f"{self.title}", style="red")
-            elif self.is_unlisted:
-                console.print(f"{self.title} [UNLISTED]")
-            elif self.is_external:
-                console.print(f"{self.title} [EXTERNAL]")
-            else:
-                console.print(f"{self.title}")
-
-    def print_title(self):
-        header = f"{self.title} ({len(self.items)} items)"
-        console = Console()
-        console.print(Text("=" * len(header), style="green"))
-        console.print(f"{header}", style="green")
-        console.print(Text("=" * len(header), style="green"))
-
-    def add_item(
-        self,
-        id,
-        video_id,
-        channel_id,
-        title,
-        position,
-        is_unlisted,
-        is_private,
-        is_external,
-        is_deleted,
-    ):
-        item = self.PlaylistItem(
-            id,
-            video_id,
-            channel_id,
-            title,
-            position,
-            is_unlisted,
-            is_private,
-            is_external,
-            is_deleted,
-        )
-        self.items.append(item)
-        return item
 
 
 def get_args():
@@ -204,28 +52,6 @@ def get_args():
     return parser.parse_args()
 
 
-def get_channel_info(youtube, cursor, channel_name):
-    request = youtube.search().list(
-        part="snippet", type="channel", q=channel_name, maxResults=1
-    )
-    response = request.execute()
-    if len(response["items"]) == 0:
-        raise Exception(f"Could not obtain a channel ID for {channel_name}")
-    channel_id = response["items"][0]["snippet"]["channelId"]
-    print(f"The channel ID for {channel_name} is {channel_id}")
-    db.save_channel(cursor, channel_id, channel_name)
-    return channel_id
-
-
-def get_all_video_ids(cursor):
-    video_ids = []
-    cursor.execute("SELECT id FROM videos")
-    rows = cursor.fetchall()
-    for row in rows:
-        video_ids.append(row[0])
-    return video_ids
-
-
 def get_videos_for_channel(channel_name):
     download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
     if not download_root_path:
@@ -239,104 +65,6 @@ def get_videos_for_channel(channel_name):
     cursor.close()
     conn.close()
     return (videos, download_path)
-
-
-def get_playlists_for_channel(youtube, channel_name):
-    (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
-
-    playlists = []
-    print(f"Getting playlists {channel_name} from YouTube")
-    next_page_token = None
-    while True:
-        playlist_response = (
-            youtube.playlists()
-            .list(
-                part="id,snippet",
-                channelId=channel_id,
-                maxResults=50,
-                pageToken=next_page_token,
-            )
-            .execute()
-        )
-        for playlist in playlist_response["items"]:
-            title = playlist["snippet"]["title"]
-            print(f"Retrieved playlist {title}...")
-            playlist = Playlist(playlist["id"], title, channel_id)
-            db.save_playlist(cursor, playlist)
-            playlists.append(playlist)
-        conn.commit()
-        next_page_token = playlist_response.get("nextPageToken")
-        if not next_page_token:
-            break
-    return playlists
-
-
-def get_playlist_items(youtube, playlists):
-    (conn, cursor) = db.create_or_get_conn()
-
-    video_ids = get_all_video_ids(cursor)
-    for playlist in playlists:
-        print(f"Obtaining items for playlist {playlist.title}")
-
-        next_page_token = None
-        items = []
-        while True:
-            playlist_items_response = (
-                youtube.playlistItems()
-                .list(
-                    part="id,snippet",
-                    playlistId=playlist.id,
-                    maxResults=50,
-                    pageToken=next_page_token,
-                )
-                .execute()
-            )
-
-            items.extend(playlist_items_response.get("items", []))
-            next_page_token = playlist_items_response.get("nextPageToken")
-            if not next_page_token:
-                break
-            print("Getting next page of playlist items...")
-        for item in items:
-            video_id = item["snippet"]["resourceId"]["videoId"]
-            title = item["snippet"]["title"]
-            position = item["snippet"]["position"]
-            if title == "Private video" or title == "Deleted video":
-                channel_id = playlist.channel_id
-            else:
-                channel_id = item["snippet"]["videoOwnerChannelId"]
-                channel_name = item["snippet"]["videoOwnerChannelTitle"]
-                db.save_channel(cursor, channel_id, channel_name)
-
-            is_external = 1 if channel_id != playlist.channel_id else 0
-            is_unlisted = 1 if not is_external and video_id not in video_ids else 0
-            is_private = 1 if title == "Private video" else 0
-            is_deleted = 1 if title == "Deleted video" else 0
-            playlist_item = playlist.add_item(
-                item["id"],
-                video_id,
-                channel_id,
-                title,
-                int(position),
-                is_unlisted,
-                is_private,
-                is_external,
-                is_deleted,
-            )
-            print(f"Retrieved playlist item {title}")
-            db.save_playlist_item(cursor, playlist.id, playlist_item)
-        conn.commit()
-    cursor.close()
-    conn.close()
-
-
-def add_video_from_playlist_item(playlist_item):
-    (conn, cursor) = db.create_or_get_conn()
-    db.save_video(cursor, Video.from_playlist_item(playlist_item))
-    conn.commit()
-    cursor.close()
-    conn.close()
 
 
 def get_full_video_path(download_path, video_id):
@@ -411,27 +139,11 @@ def process_update_root_path_command():
 
 def process_get_videos_command(youtube, channel_name):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = get_channel_info(youtube, cursor, channel_name)
-
-    next_page_token = None
-    while True:
-        search_response = (
-            youtube.search()
-            .list(
-                part="id",
-                channelId=channel_id,
-                type="video",
-                maxResults=50,
-                pageToken=next_page_token,
-            )
-            .execute()
-        )
-        for item in search_response["items"]:
-            video = Video.from_search_response_item(youtube, item, channel_id)
-            db.save_video(cursor, video)
-        next_page_token = search_response.get("nextPageToken")
-        if not next_page_token:
-            break
+    channel_id = yt.get_channel_info(youtube, channel_name)
+    db.save_channel(cursor, channel_id, channel_name)
+    videos = yt.get_channel_videos(youtube, channel_id)
+    for video in videos:
+        db.save_video(cursor, video)
     conn.commit()
     cursor.close()
     conn.close()
@@ -555,7 +267,6 @@ def process_list_playlists_command(channel_name, add_unlisted, add_external):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
     playlists = db.get_playlists(cursor, channel_id)
-    video_ids = db.get_all_downloaded_video_ids(cursor)
     for playlist in playlists:
         db.get_playlist_items(cursor, playlist)
         playlist.print_title()
@@ -563,18 +274,32 @@ def process_list_playlists_command(channel_name, add_unlisted, add_external):
             item.print()
             if add_unlisted:
                 if item.is_unlisted and not item.is_private and not item.is_deleted:
-                    add_video_from_playlist_item(item)
+                    db.save_video(cursor, Video.from_playlist_item(item))
             if add_external:
                 if item.is_external:
-                    add_video_from_playlist_item(item)
+                    db.save_video(cursor, Video.from_playlist_item(item))
     conn.commit()
     cursor.close()
     conn.close()
 
 
 def process_get_playist_command(youtube, channel_name):
-    playlists = get_playlists_for_channel(youtube, channel_name)
-    get_playlist_items(youtube, playlists)
+    print(f"Getting playlists {channel_name} from YouTube")
+    (conn, cursor) = db.create_or_get_conn()
+    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    playlists = yt.get_playlists_for_channel(youtube, channel_id)
+
+    video_ids = db.get_all_video_ids(cursor)
+    # The `playlists` list will be updated with the items.
+    yt.get_playlist_items(youtube, cursor, playlists, video_ids)
+
+    for playlist in playlists:
+        db.save_playlist(cursor, playlist)
+        for playlist_item in playlist.items:
+            db.save_playlist_item(cursor, playlist.id, playlist_item)
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 def process_delete_playist_command(channel_name):

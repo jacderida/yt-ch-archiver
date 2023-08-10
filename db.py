@@ -197,6 +197,15 @@ def get_videos(cursor, channel_id, not_downloaded):
     return videos
 
 
+def get_all_video_ids(cursor):
+    video_ids = []
+    cursor.execute("SELECT id FROM videos")
+    rows = cursor.fetchall()
+    for row in rows:
+        video_ids.append(row[0])
+    return video_ids
+
+
 def get_downloaded_videos(cursor):
     videos = []
     query = "SELECT * FROM videos WHERE saved_path IS NOT NULL"
