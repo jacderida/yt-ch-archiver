@@ -14,6 +14,7 @@ from datetime import datetime
 from googleapiclient.discovery import build
 from models import SyncReport, Video, VideoListSpreadsheet
 from pathlib import Path
+from PIL import Image
 from pymediainfo import MediaInfo
 
 # According to the yt-dlp documentation, this format selection will get the
@@ -24,6 +25,12 @@ FORMAT_SELECTION = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4] / bv*+ba/b"
 def get_args():
     parser = argparse.ArgumentParser(description="Command-line interface for managing channels, videos, and playlists.")
     subparsers = parser.add_subparsers(dest="command_group", help="Sub-command help")
+
+    admin_parser = subparsers.add_parser("admin", help="Manage channels")
+    admin_subparser = admin_parser.add_subparsers(dest="admin_command")
+    admin_subparser.add_parser(
+        "build-thumbnails", help="List all the channels in the cache").add_argument(
+            "channel_name", help="The name of the channel")
 
     channels_parser = subparsers.add_parser("channels", help="Manage channels")
     channels_subparser = channels_parser.add_subparsers(dest="channels_command")
@@ -182,9 +189,55 @@ def get_video_description(download_path, video_id):
         return description
 
 
+"""
+This will create a thumbnail of 150x150.
+
+However, the size of the input image varies, and the aspect ratio of the input image is respected.
+To keep every thumbnail the same size, the resized input image will be placed in another 150x150
+'container' image which will have transparent pixels.
+"""
+def create_thumbnail(input_path, output_path):
+    desired_size = (150, 150)
+    img = Image.open(input_path)
+    
+    ratio = min(desired_size[0] / img.width, desired_size[1] / img.height)
+    new_size = (int(img.width * ratio), int(img.height * ratio))
+    img_resized = img.resize(new_size, resample=Image.Resampling.LANCZOS)
+    
+    # Create new blank image and paste the resized one in the center
+    new_img = Image.new("RGB", desired_size, (255, 255, 255))  # white background
+    new_img.paste(img_resized, ((desired_size[0] - new_size[0]) // 2, 
+                                (desired_size[1] - new_size[1]) // 2))
+    print(f"Saving thumbnail to {output_path}...")
+    new_img.save(output_path)
+
+
 #
 # Command Processing
 #
+#
+# Admin Commands
+#
+def process_admin_build_thumbnails_command(channel_name):
+    download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
+    if not download_root_path:
+        raise Exception(
+            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
+        )
+    input_images_path = Path(download_root_path).joinpath(channel_name).joinpath("video")
+    output_thumbnails_path = input_images_path.parent.joinpath("thumbnails")
+
+    print(f"Using {input_images_path} as the input directory.")
+    print(f"Using {output_thumbnails_path} as the output directory.")
+
+    if not os.path.exists(output_thumbnails_path):
+        os.makedirs(output_thumbnails_path)
+    for filename in os.listdir(input_images_path):
+        if filename.endswith('.jpg') or filename.endswith('.webp'):
+            input_path = os.path.join(input_images_path, filename)
+            output_path = os.path.join(output_thumbnails_path, filename)
+            create_thumbnail(input_path, output_path)
+
 
 def process_list_videos_command(channel_name, not_downloaded, use_xls):
     (conn, cursor) = db.create_or_get_conn()
@@ -381,6 +434,9 @@ def main():
             process_list_channel_command()
         elif args.channels_command == "sync":
             process_sync_command(youtube, args.channel_names)
+    elif args.command_group == "admin":
+        if args.admin_command == "build-thumbnails":
+            process_admin_build_thumbnails_command(args.channel_name)
     elif args.command_group == "videos":
         if args.videos_command == "download":
             skip_ids = []
