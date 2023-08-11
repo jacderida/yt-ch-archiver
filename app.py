@@ -12,8 +12,9 @@ import yt_dlp
 from bs4 import BeautifulSoup
 from datetime import datetime
 from googleapiclient.discovery import build
-from models import SyncReport, Video
+from models import SyncReport, Video, VideoListSpreadsheet
 from pathlib import Path
+from pymediainfo import MediaInfo
 
 # According to the yt-dlp documentation, this format selection will get the
 # best mp4 video available, or failing that, the best video otherwise available.
@@ -37,6 +38,7 @@ def get_args():
     ls_parser = videos_subparser.add_parser("ls", help="List all the videos in the cache")
     ls_parser.add_argument("channel_name", help="The name of the channel")
     ls_parser.add_argument("--not-downloaded", action="store_true", help="Display only videos that haven't yet been downloaded")
+    ls_parser.add_argument("--xls", action="store_true", help="Generate the list as a spreadsheet")
     download_parser = videos_subparser.add_parser("download", help="Download all the listed videos for a channel")
     download_parser.add_argument("channel_name", help="The name of the channel")
     download_parser.add_argument("--skip-ids", type=str, help="A comma-separated list of video IDs to skip")
@@ -99,7 +101,19 @@ def download_videos_for_channel(channel_name, skip_ids):
                     os.path.join(download_path, "video"), video.id
                 )
                 (conn, cursor) = db.create_or_get_conn()
-                db.save_video_path(cursor, full_video_path, video.id)
+
+                video.saved_path = full_video_path
+                print(f"Reading media info from {video.saved_path}")
+                media_info = MediaInfo.parse(video.saved_path)
+                video_track = next(track for track in media_info.tracks if track.track_type == "Video")
+                minutes, milliseconds = divmod(video_track.duration, 60 * 1000)
+                seconds = milliseconds // 1000
+                duration = f"{minutes}m{seconds}s"
+                resolution = f"{video_track.width}x{video_track.height}"
+                video.duration = duration
+                video.resolution = resolution
+
+                db.save_downloaded_video_details(cursor, video)
                 conn.commit()
                 cursor.close()
                 conn.close()
@@ -172,13 +186,17 @@ def get_video_description(download_path, video_id):
 # Command Processing
 #
 
-def process_list_videos_command(channel_name, not_downloaded):
+def process_list_videos_command(channel_name, not_downloaded, use_xls):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_name(cursor, channel_name)
     print(f"{channel_id}")
     videos = db.get_videos(cursor, channel_id, not_downloaded)
-    for video in videos:
-        video.print()
+    if use_xls:
+        report = VideoListSpreadsheet(channel_name)
+        report.generate_report(videos, "videos.xslx")
+    else:
+        for video in videos:
+            video.print()
     cursor.close()
     conn.close()
 
@@ -372,7 +390,7 @@ def main():
         elif args.videos_command == "get":
             process_get_videos_command(youtube, args.channel_name)
         elif args.videos_command == "ls":
-            process_list_videos_command(args.channel_name, args.not_downloaded)
+            process_list_videos_command(args.channel_name, args.not_downloaded, args.xls)
         elif args.videos_command == "update-root-path":
             process_update_root_path_command()
     elif args.command_group == "playlists":

@@ -61,6 +61,20 @@ def create_or_get_conn():
         ADD COLUMN download_error TEXT NULL
         """
         )
+    if "duration" not in columns:
+        cursor.execute(
+            """
+        ALTER TABLE videos
+        ADD COLUMN duration TEXT NULL
+        """
+        )
+    if "resolution" not in columns:
+        cursor.execute(
+            """
+        ALTER TABLE videos
+        ADD COLUMN resolution TEXT NULL
+        """
+        )
 
     cursor.execute(
         """
@@ -168,6 +182,18 @@ def save_video_path(cursor, full_video_path, video_id):
         UPDATE videos SET saved_path = ? WHERE id = ?
         """,
         (full_video_path, video_id),
+    )
+
+
+def save_downloaded_video_details(cursor, video):
+    print(
+        f"Updating {video.id} cache entry with downloaded video details"
+    )
+    cursor.execute(
+        """
+        UPDATE videos SET saved_path = ?, duration = ?, resolution = ? WHERE id = ?
+        """,
+        (video.saved_path, video.duration, video.resolution, video.id),
     )
 
 

@@ -1,4 +1,9 @@
+import unicodedata
+
 from datetime import datetime
+from openpyxl import Workbook
+from openpyxl.styles import PatternFill
+from pymediainfo import MediaInfo
 from rich.console import Console
 from rich.highlighter import RegexHighlighter
 from rich.text import Text
@@ -40,6 +45,8 @@ class Video:
         self.is_unlisted = is_unlisted
         self.is_private = is_private
         self.download_error = ""
+        self.duration = ""
+        self.resolution = ""
 
     def get_url(self):
         return f"http://www.youtube.com/watch?v={self.id}"
@@ -71,7 +78,14 @@ class Video:
         saved_path = row[3]
         is_unlisted = row[4]
         is_private = row[5]
-        return Video(id, title, channel_id, saved_path, is_unlisted, is_private)
+        video = Video(id, title, channel_id, saved_path, is_unlisted, is_private)
+        if row[6]:
+            video.download_error = row[6]
+        if row[7]:
+            video.duration = row[7]
+        if row[8]:
+            video.duration = row[8]
+        return video
 
     def print(self):
         is_downloaded = True if self.saved_path else False
@@ -207,3 +221,62 @@ class SyncReport:
     def save(self, file_path):
         with open(file_path, 'w') as file:
             file.write(self._generate_report())
+
+
+class VideoListSpreadsheet():
+    def __init__(self, channel_name):
+        self.channel_name = channel_name
+
+    def sanitize_string(self, s):
+        # Remove control characters
+        return ''.join(ch for ch in s if unicodedata.category(ch)[0]!="C")
+
+
+    def generate_report(self, videos, file_path):
+        workbook = Workbook()
+        sheet = workbook.create_sheet(self.channel_name, 0)
+
+        green_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+        red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+        blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
+
+        headers = ["ID", "Title", "Status", "Duration", "Resolution"]
+        for col_num, header in enumerate(headers, 1):
+            col_letter = chr(64 + col_num)
+            sheet[f"{col_letter}1"] = header
+
+        for row_num, video in enumerate(videos, 2):
+            if video.saved_path:
+                title = video.title
+                duration = video.duration
+                resolution = video.resolution
+            elif video.is_private:
+                title = video.title
+                duration = "N/A"
+                resolution = "N/A"
+            else:
+                cleaned_error = "Video unavailable." + video.download_error.split("Video unavailable.", 1)[-1]
+                title = f"{video.title} -- {cleaned_error}"
+                duration = "N/A"
+                resolution = "N/A"
+
+            status = "PUBLIC"
+            if video.is_private:
+                status = "PRIVATE"
+            elif video.is_unlisted:
+                status = "UNLISTED"
+            sheet[f"A{row_num}"] = video.id
+            sheet[f"B{row_num}"] = self.sanitize_string(title)
+            sheet[f"C{row_num}"] = status
+            sheet[f"D{row_num}"] = duration
+            sheet[f"E{row_num}"] = resolution
+
+            if video.saved_path:
+                if video.is_unlisted:
+                    sheet.cell(row=row_num, column=3).fill = blue_fill
+                else:
+                    sheet.cell(row=row_num, column=3).fill = green_fill
+            else:
+                for col_num in range(1, len(headers) + 1):
+                    sheet.cell(row=row_num, column=col_num).fill = red_fill
+        workbook.save(file_path)
