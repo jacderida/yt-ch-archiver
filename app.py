@@ -120,18 +120,36 @@ def download_videos_for_channel(channel_name, skip_ids):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 ydl.download([video.get_url()])
-                full_video_path = get_full_video_path(
+                video.saved_path = get_full_video_path(
                     os.path.join(download_path, "video"), video.id
                 )
-                video.saved_path = full_video_path
-                (conn, cursor) = db.create_or_get_conn()
                 (duration, resolution) = get_media_info(video.saved_path)
                 video.duration = duration
                 video.resolution = resolution
+
+                (conn, cursor) = db.create_or_get_conn()
                 db.save_downloaded_video_details(cursor, video)
                 conn.commit()
                 cursor.close()
                 conn.close()
+
+                video_path = Path(video.saved_path)
+                thumb_dir_path = video_path.parent.parent.joinpath("thumbnail")
+                if not os.path.exists(thumb_dir_path):
+                    os.makedirs(thumb_dir_path)
+
+                thumb_input_path = video_path.parent.joinpath(video.id + ".webp")
+                if not thumb_input_path.exists():
+                    # If the thumbnail is not in .webp, try .jpg.
+                    print(f"Thumbnail not detected at {thumb_input_path}")
+                    thumb_input_path = video_path.parent.joinpath(video.id + ".jpg")
+                    print(f"Will try {thumb_input_path} instead")
+                if thumb_input_path.exists():
+                    thumb_output_path = thumb_dir_path.joinpath(video.id + ".jpg")
+                    create_thumbnail(thumb_input_path, thumb_output_path)
+                else:
+                    print(f"No webp or jpg thumbnail detected for {video.id}")
+
                 downloaded_videos.append(video)
             except Exception as e:
                 print(f"Failed to download {video.id}:")
@@ -233,7 +251,7 @@ def process_admin_build_thumbnails_command(channel_name):
             "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
         )
     input_images_path = Path(download_root_path).joinpath(channel_name).joinpath("video")
-    output_thumbnails_path = input_images_path.parent.joinpath("thumbnails")
+    output_thumbnails_path = input_images_path.parent.joinpath("thumbnail")
 
     print(f"Using {input_images_path} as the input directory.")
     print(f"Using {output_thumbnails_path} as the output directory.")

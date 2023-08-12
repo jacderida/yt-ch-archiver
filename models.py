@@ -258,7 +258,7 @@ class VideoListSpreadsheet():
                 resolution = video.resolution
 
                 thumbnail_path = Path(video.saved_path).parent.parent.joinpath(
-                    "thumbnails").joinpath(f"{video.id}.jpg")
+                    "thumbnail").joinpath(f"{video.id}.jpg")
                 thumbnail_image = Image(thumbnail_path)
                 thumbnail_image.width = thumb_width
                 thumbnail_image.height = thumb_height
