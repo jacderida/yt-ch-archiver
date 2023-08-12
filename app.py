@@ -29,7 +29,12 @@ def get_args():
     admin_parser = subparsers.add_parser("admin", help="Manage channels")
     admin_subparser = admin_parser.add_subparsers(dest="admin_command")
     admin_subparser.add_parser(
-        "build-thumbnails", help="List all the channels in the cache").add_argument(
+        "build-thumbnails",
+        help="Build thumbnails for videos that have already been retrieved").add_argument(
+            "channel_name", help="The name of the channel")
+    admin_subparser.add_parser(
+        "update-video-info",
+        help="Update video cache records with duration and resolution").add_argument(
             "channel_name", help="The name of the channel")
 
     channels_parser = subparsers.add_parser("channels", help="Manage channels")
@@ -66,6 +71,17 @@ def get_args():
 # 
 # Helpers
 #
+def get_media_info(video_path):
+    print(f"Reading media info from {video_path}")
+    media_info = MediaInfo.parse(video_path)
+    video_track = next(track for track in media_info.tracks if track.track_type == "Video")
+    minutes, milliseconds = divmod(video_track.duration, 60 * 1000)
+    seconds = milliseconds // 1000
+    duration = f"{minutes}m{seconds}s"
+    resolution = f"{video_track.width}x{video_track.height}"
+    return (duration, resolution)
+
+
 def download_videos_for_channel(channel_name, skip_ids):
     (videos, download_path) = get_videos_for_channel(channel_name)
     print(f"Attempting to download videos for {channel_name}...")
@@ -107,19 +123,11 @@ def download_videos_for_channel(channel_name, skip_ids):
                 full_video_path = get_full_video_path(
                     os.path.join(download_path, "video"), video.id
                 )
-                (conn, cursor) = db.create_or_get_conn()
-
                 video.saved_path = full_video_path
-                print(f"Reading media info from {video.saved_path}")
-                media_info = MediaInfo.parse(video.saved_path)
-                video_track = next(track for track in media_info.tracks if track.track_type == "Video")
-                minutes, milliseconds = divmod(video_track.duration, 60 * 1000)
-                seconds = milliseconds // 1000
-                duration = f"{minutes}m{seconds}s"
-                resolution = f"{video_track.width}x{video_track.height}"
+                (conn, cursor) = db.create_or_get_conn()
+                (duration, resolution) = get_media_info(video.saved_path)
                 video.duration = duration
                 video.resolution = resolution
-
                 db.save_downloaded_video_details(cursor, video)
                 conn.commit()
                 cursor.close()
@@ -205,11 +213,11 @@ def create_thumbnail(input_path, output_path):
     img_resized = img.resize(new_size, resample=Image.Resampling.LANCZOS)
     
     # Create new blank image and paste the resized one in the center
-    new_img = Image.new("RGB", desired_size, (255, 255, 255))  # white background
+    new_img = Image.new("RGB", desired_size, (0, 0, 0))  # black background
     new_img.paste(img_resized, ((desired_size[0] - new_size[0]) // 2, 
                                 (desired_size[1] - new_size[1]) // 2))
     print(f"Saving thumbnail to {output_path}...")
-    new_img.save(output_path)
+    new_img.save(output_path, "JPEG")
 
 
 #
@@ -235,8 +243,29 @@ def process_admin_build_thumbnails_command(channel_name):
     for filename in os.listdir(input_images_path):
         if filename.endswith('.jpg') or filename.endswith('.webp'):
             input_path = os.path.join(input_images_path, filename)
-            output_path = os.path.join(output_thumbnails_path, filename)
+            if filename.endswith('.webp'):
+                output_filename = os.path.splitext(filename)[0] + '.jpg'
+            else:
+                output_filename = filename
+            output_path = os.path.join(output_thumbnails_path, output_filename)
             create_thumbnail(input_path, output_path)
+
+
+def process_admin_update_video_info_command(channel_name):
+    (conn, cursor) = db.create_or_get_conn()
+    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    videos = db.get_videos(cursor, channel_id, False)
+    videos_len = len(videos)
+    for i, video in enumerate(videos):
+        print(f"Processing video {i + 1} of {videos_len}")
+        if video.saved_path:
+            (duration, resolution) = get_media_info(video.saved_path)
+            video.duration = duration
+            video.resolution = resolution
+            db.save_downloaded_video_details(cursor, video)
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 def process_list_videos_command(channel_name, not_downloaded, use_xls):
@@ -437,6 +466,8 @@ def main():
     elif args.command_group == "admin":
         if args.admin_command == "build-thumbnails":
             process_admin_build_thumbnails_command(args.channel_name)
+        if args.admin_command == "update-video-info":
+            process_admin_update_video_info_command(args.channel_name)
     elif args.command_group == "videos":
         if args.videos_command == "download":
             skip_ids = []

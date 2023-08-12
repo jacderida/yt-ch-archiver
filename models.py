@@ -1,9 +1,10 @@
 import unicodedata
 
 from datetime import datetime
+from pathlib import Path
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
-from pymediainfo import MediaInfo
 from rich.console import Console
 from rich.highlighter import RegexHighlighter
 from rich.text import Text
@@ -84,7 +85,7 @@ class Video:
         if row[7]:
             video.duration = row[7]
         if row[8]:
-            video.duration = row[8]
+            video.resolution = row[8]
         return video
 
     def print(self):
@@ -240,16 +241,32 @@ class VideoListSpreadsheet():
         red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
         blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
-        headers = ["ID", "Title", "Status", "Duration", "Resolution"]
+        headers = ["", "ID", "Title", "Status", "Duration", "Resolution"]
         for col_num, header in enumerate(headers, 1):
             col_letter = chr(64 + col_num)
             sheet[f"{col_letter}1"] = header
 
+        thumb_width = 150
+        thumb_height = 150
+
+        videos_len = len(videos)
         for row_num, video in enumerate(videos, 2):
+            print(f"Processing video {row_num - 1} of {videos_len}")
             if video.saved_path:
                 title = video.title
                 duration = video.duration
                 resolution = video.resolution
+
+                thumbnail_path = Path(video.saved_path).parent.parent.joinpath(
+                    "thumbnails").joinpath(f"{video.id}.jpg")
+                thumbnail_image = Image(thumbnail_path)
+                thumbnail_image.width = thumb_width
+                thumbnail_image.height = thumb_height
+
+                sheet.row_dimensions[row_num].height = thumb_height * 0.76
+                sheet.column_dimensions['A'].width = thumb_width / 8
+            
+                sheet.add_image(thumbnail_image, f"A{row_num}")
             elif video.is_private:
                 title = video.title
                 duration = "N/A"
@@ -265,17 +282,21 @@ class VideoListSpreadsheet():
                 status = "PRIVATE"
             elif video.is_unlisted:
                 status = "UNLISTED"
-            sheet[f"A{row_num}"] = video.id
-            sheet[f"B{row_num}"] = self.sanitize_string(title)
-            sheet[f"C{row_num}"] = status
-            sheet[f"D{row_num}"] = duration
-            sheet[f"E{row_num}"] = resolution
+
+            cell = sheet[f"B{row_num}"]
+            cell.value = video.id
+            cell.hyperlink = video.get_url()
+            cell.style = "Hyperlink"
+            sheet[f"C{row_num}"] = self.sanitize_string(title)
+            sheet[f"D{row_num}"] = status
+            sheet[f"E{row_num}"] = duration
+            sheet[f"F{row_num}"] = resolution
 
             if video.saved_path:
                 if video.is_unlisted:
-                    sheet.cell(row=row_num, column=3).fill = blue_fill
+                    sheet.cell(row=row_num, column=4).fill = blue_fill
                 else:
-                    sheet.cell(row=row_num, column=3).fill = green_fill
+                    sheet.cell(row=row_num, column=4).fill = green_fill
             else:
                 for col_num in range(1, len(headers) + 1):
                     sheet.cell(row=row_num, column=col_num).fill = red_fill
