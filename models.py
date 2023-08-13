@@ -1,5 +1,7 @@
-import unicodedata
+import json
+import os
 import requests
+import unicodedata
 
 from datetime import datetime
 from enum import Enum, auto
@@ -269,6 +271,13 @@ class VideoListSpreadsheet():
         return ''.join(ch for ch in s if unicodedata.category(ch)[0]!="C")
 
     def generate_report(self, videos, file_path):
+        download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
+        if not download_root_path:
+            raise Exception(
+                "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
+            )
+        channel_path = Path(download_root_path).joinpath(self.channel_name)
+
         workbook = Workbook()
         sheet = workbook.create_sheet(self.channel_name, 0)
 
@@ -276,7 +285,7 @@ class VideoListSpreadsheet():
         red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
         blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
 
-        headers = ["", "ID", "Title", "Status", "Duration", "Resolution"]
+        headers = ["", "ID", "Date", "Title", "Status", "Duration", "Resolution", "Description"]
         for col_num, header in enumerate(headers, 1):
             col_letter = chr(64 + col_num)
             sheet[f"{col_letter}1"] = header
@@ -293,10 +302,10 @@ class VideoListSpreadsheet():
         for video in videos:
             if row_num > 1000:
                 row_num = 2
-                print("Creating new sheet.")
+                print("Creating new sheet")
                 sheet = workbook.create_sheet(f"{self.channel_name}{sheet_number}", 0)
                 sheet_number += 1
-                headers = ["", "ID", "Title", "Status", "Duration", "Resolution"]
+                headers = ["", "ID", "Date", "Title", "Status", "Duration", "Resolution", "Description"]
                 for col_num, header in enumerate(headers, 1):
                     col_letter = chr(64 + col_num)
                     sheet[f"{col_letter}1"] = header
@@ -306,6 +315,17 @@ class VideoListSpreadsheet():
                 title = video.title
                 duration = video.duration
                 resolution = video.resolution
+
+                info_path = channel_path.joinpath("info").joinpath(f"{video.id}.info.json")
+                with open(info_path, "r") as info_file:
+                    info = json.load(info_file)
+                upload_date = info["upload_date"]
+                upload_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+
+                description_path = channel_path.joinpath(
+                    "description").joinpath(f"{video.id}.description")
+                with open(description_path, "r") as description_file:
+                    description = description_file.read()
 
                 thumbnail_path = Path(video.saved_path).parent.parent.joinpath(
                     "thumbnail").joinpath(f"{video.id}.jpg")
@@ -323,11 +343,15 @@ class VideoListSpreadsheet():
                 title = video.title
                 duration = "N/A"
                 resolution = "N/A"
+                description = ""
+                upload_date = ""
             else:
                 cleaned_error = "Video unavailable." + video.download_error.split("Video unavailable.", 1)[-1]
                 title = f"{video.title} -- {cleaned_error}"
                 duration = "N/A"
                 resolution = "N/A"
+                description = ""
+                upload_date = ""
 
             status = "PUBLIC"
             if video.is_private:
@@ -339,16 +363,18 @@ class VideoListSpreadsheet():
             cell.value = video.id
             cell.hyperlink = video.get_url()
             cell.style = "Hyperlink"
-            sheet[f"C{row_num}"] = self.sanitize_string(title)
-            sheet[f"D{row_num}"] = status
-            sheet[f"E{row_num}"] = duration
-            sheet[f"F{row_num}"] = resolution
+            sheet[f"C{row_num}"] = upload_date
+            sheet[f"D{row_num}"] = self.sanitize_string(title)
+            sheet[f"E{row_num}"] = status
+            sheet[f"F{row_num}"] = duration
+            sheet[f"G{row_num}"] = resolution
+            sheet[f"H{row_num}"] = description
 
             if video.saved_path:
                 if video.is_unlisted:
-                    sheet.cell(row=row_num, column=4).fill = blue_fill
+                    sheet.cell(row=row_num, column=5).fill = blue_fill
                 else:
-                    sheet.cell(row=row_num, column=4).fill = green_fill
+                    sheet.cell(row=row_num, column=5).fill = green_fill
             else:
                 for col_num in range(1, len(headers) + 1):
                     sheet.cell(row=row_num, column=col_num).fill = red_fill

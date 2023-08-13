@@ -272,7 +272,10 @@ def process_admin_build_thumbnails_command(channel_name):
             else:
                 output_filename = filename
             output_path = os.path.join(output_thumbnails_path, output_filename)
-            create_thumbnail(input_path, output_path)
+            # It's possible the thumbnail was already generated from a previous run
+            # so don't bother doing it again.
+            if not os.path.exists(output_path):
+                create_thumbnail(input_path, output_path)
 
 
 def process_admin_update_video_info_command(channel_name):
