@@ -1,7 +1,11 @@
 import unicodedata
+import requests
 
 from datetime import datetime
+from enum import Enum, auto
+from io import BytesIO
 from pathlib import Path
+from PIL import Image as PilImage
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
@@ -35,6 +39,38 @@ def print_video(video_id, title, is_unlisted, is_private, is_external, is_downlo
         console.print(msg, style="green")
     else:
         console.print(msg, style="red")
+
+
+class ChannelThumbnailType(Enum):
+    LARGE = auto()
+    MEDIUM = auto()
+    SMALL = auto()
+
+
+class Channel:
+    def __init__(self, id, username, published_at, title, description):
+        self.id = id
+        self.username = username
+        self.published_at = published_at
+        self.title = title
+        self.description = description
+        self.video_count = 0
+        self.video_size = ""
+        self.video_duration = 0
+        self.large_thumbnail = None
+        self.medium_thumbnail = None
+        self.small_thumbnail = None
+
+    def get_thumbnail(self, url, thumb_type):
+        print(f"Retrieving channel thumbnail from {url}...")
+        response = requests.get(url)
+        image_bytes = response.content
+        if thumb_type == ChannelThumbnailType.LARGE:
+            self.large_thumbnail = PilImage.open(BytesIO(image_bytes))
+        if thumb_type == ChannelThumbnailType.MEDIUM:
+            self.medium_thumbnail = PilImage.open(BytesIO(image_bytes))
+        if thumb_type == ChannelThumbnailType.SMALL:
+            self.small_thumbnail = PilImage.open(BytesIO(image_bytes))
 
 
 class Video:
@@ -232,7 +268,6 @@ class VideoListSpreadsheet():
         # Remove control characters
         return ''.join(ch for ch in s if unicodedata.category(ch)[0]!="C")
 
-
     def generate_report(self, videos, file_path):
         workbook = Workbook()
         sheet = workbook.create_sheet(self.channel_name, 0)
@@ -248,10 +283,25 @@ class VideoListSpreadsheet():
 
         thumb_width = 150
         thumb_height = 150
+        thumb_row_height = thumb_height * 0.76
+        thumb_row_width = thumb_width / 8
 
+        sheet_number = 2
         videos_len = len(videos)
-        for row_num, video in enumerate(videos, 2):
-            print(f"Processing video {row_num - 1} of {videos_len}")
+        row_num = 2
+        video_count = 1
+        for video in videos:
+            if row_num > 1000:
+                row_num = 2
+                print("Creating new sheet.")
+                sheet = workbook.create_sheet(f"{self.channel_name}{sheet_number}", 0)
+                sheet_number += 1
+                headers = ["", "ID", "Title", "Status", "Duration", "Resolution"]
+                for col_num, header in enumerate(headers, 1):
+                    col_letter = chr(64 + col_num)
+                    sheet[f"{col_letter}1"] = header
+
+            print(f"Processing video {video_count} of {videos_len}")
             if video.saved_path:
                 title = video.title
                 duration = video.duration
@@ -259,12 +309,14 @@ class VideoListSpreadsheet():
 
                 thumbnail_path = Path(video.saved_path).parent.parent.joinpath(
                     "thumbnail").joinpath(f"{video.id}.jpg")
+                if not thumbnail_path.exists():
+                    raise Exception(f"Thumbnail not found at {thumbnail_path}")
                 thumbnail_image = Image(thumbnail_path)
                 thumbnail_image.width = thumb_width
                 thumbnail_image.height = thumb_height
 
-                sheet.row_dimensions[row_num].height = thumb_height * 0.76
-                sheet.column_dimensions['A'].width = thumb_width / 8
+                sheet.row_dimensions[row_num].height = thumb_row_height
+                sheet.column_dimensions['A'].width = thumb_row_width
             
                 sheet.add_image(thumbnail_image, f"A{row_num}")
             elif video.is_private:
@@ -300,4 +352,6 @@ class VideoListSpreadsheet():
             else:
                 for col_num in range(1, len(headers) + 1):
                     sheet.cell(row=row_num, column=col_num).fill = red_fill
+            row_num += 1
+            video_count += 1
         workbook.save(file_path)

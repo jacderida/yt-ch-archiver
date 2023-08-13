@@ -4,6 +4,19 @@ import sqlite3
 from models import Playlist, Video
 
 
+def add_new_column(cursor, table, name, data_type, null_status, default_value):
+    cursor.execute(f"PRAGMA table_info({table})")
+    columns = [row[1] for row in cursor.fetchall()]
+    if name not in columns:
+        sql = f"""
+        ALTER TABLE {table}
+        ADD COLUMN {name} {data_type} {null_status}
+        """
+        if default_value:
+            sql += f" DEFAULT {default_value}"
+        cursor.execute(sql)
+
+
 def create_or_get_conn():
     if "YT_CH_ARCHIVER_DB_PATH":
         database_path = os.environ["YT_CH_ARCHIVER_DB_PATH"]
@@ -23,10 +36,17 @@ def create_or_get_conn():
         """
     CREATE TABLE IF NOT EXISTS channels (
         id TEXT PRIMARY KEY,
-        name TEXT NOT NULL
+        username TEXT NOT NULL
     )
     """
     )
+    add_new_column(cursor, "channels", "title", "TEXT", "NULL", None)
+    add_new_column(cursor, "channels", "description", "TEXT", "NULL", None)
+    add_new_column(cursor, "channels", "published_at", "TEXT", "NULL", None)
+    add_new_column(cursor, "channels", "large_thumbnail", "BLOB", "NULL", None)
+    add_new_column(cursor, "channels", "medium_thumbnail", "BLOB", "NULL", None)
+    add_new_column(cursor, "channels", "small_thumbnail", "BLOB", "NULL", None)
+
     cursor.execute(
         """
     CREATE TABLE IF NOT EXISTS videos (
@@ -109,13 +129,56 @@ def create_or_get_conn():
     return (conn, cursor)
 
 
-def save_channel(cursor, channel_id, channel_name):
+def save_channel(cursor, id, username):
     cursor.execute(
         """
-    INSERT OR IGNORE INTO channels (id, name)
+    INSERT OR IGNORE INTO channels (id, username)
     VALUES (?, ?)
     """,
-        (channel_id, channel_name),
+        (id, username),
+    )
+
+
+def save_channel_details(cursor, channel):
+    cursor.execute(
+        """
+    INSERT OR IGNORE INTO channels (
+        id, username, published_at,
+        title, description, large_thumbnail, medium_thumbnail, small_thumbnail)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """,
+        (
+            channel.id,
+            channel.username,
+            channel.published_at,
+            channel.title,
+            channel.description,
+            channel.large_thumbnail.tobytes(),
+            channel.medium_thumbnail.tobytes(),
+            channel.small_thumbnail.tobytes(),
+        ),
+    )
+
+
+def save_updated_channel_details(cursor, channel):
+    print(f"Saving updated channel information for {channel.title}")
+    cursor.execute(
+        """
+    UPDATE channels SET
+        username = ?, published_at = ?,
+        title = ?, description = ?, large_thumbnail = ?, medium_thumbnail = ?, small_thumbnail = ?
+    WHERE id = ?
+    """,
+        (
+            channel.username,
+            channel.published_at,
+            channel.title,
+            channel.description,
+            channel.large_thumbnail.tobytes(),
+            channel.medium_thumbnail.tobytes(),
+            channel.small_thumbnail.tobytes(),
+            channel.id,
+        ),
     )
 
 
@@ -209,12 +272,12 @@ def save_download_error(cursor, video_id, download_error):
     )
 
 
-def get_channel_id_from_name(cursor, channel_name):
-    cursor.execute("SELECT id FROM channels WHERE name = ?", (channel_name,))
+def get_channel_id_from_username(cursor, channel_username):
+    cursor.execute("SELECT id FROM channels WHERE username = ?", (channel_username,))
     result = cursor.fetchone()
     if result:
         return result[0]
-    raise Exception(f"{channel_name} is not in the local cache")
+    raise Exception(f"{channel_username} is not in the local cache")
 
 
 def get_channel_name_from_id(cursor, channel_id):

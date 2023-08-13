@@ -1,8 +1,34 @@
 import db
-from models import Video, Playlist
+from models import Channel, ChannelThumbnailType, Video, Playlist
 
 
-def get_channel_info(youtube, channel_name):
+def get_channel_info(youtube, channel_username):
+    print("Retrieving channel information from YouTube...")
+    request = youtube.channels().list(
+        part="snippet", forUsername=channel_username
+    )
+    response = request.execute()
+    if not "items" in response:
+        print("Details not obtained via username query. Try obtaining by ID.")
+        channel_id = get_channel_id_from_name(youtube, channel_username)
+        request = youtube.channels().list(part="snippet", id=channel_id)
+        response = request.execute()
+
+    channel_id = response["items"][0]["id"]
+    published_at = response["items"][0]["snippet"]["publishedAt"]
+    title = response["items"][0]["snippet"]["title"]
+    description = response["items"][0]["snippet"]["description"]
+    channel = Channel(channel_id, channel_username, published_at, title, description)
+    channel.get_thumbnail(
+        response["items"][0]["snippet"]["thumbnails"]["default"]["url"], ChannelThumbnailType.SMALL)
+    channel.get_thumbnail(
+        response["items"][0]["snippet"]["thumbnails"]["medium"]["url"], ChannelThumbnailType.MEDIUM)
+    channel.get_thumbnail(
+        response["items"][0]["snippet"]["thumbnails"]["high"]["url"], ChannelThumbnailType.LARGE)
+    return channel
+
+
+def get_channel_id_from_name(youtube, channel_name):
     request = youtube.search().list(
         part="snippet", type="channel", q=channel_name, maxResults=1
     )
@@ -61,6 +87,7 @@ def get_playlists_for_channel(youtube, channel_id):
         if not next_page_token:
             break
     return playlists
+
 
 def get_playlist_items(youtube, cursor, playlists, video_ids):
     for playlist in playlists:

@@ -40,8 +40,14 @@ def get_args():
     channels_parser = subparsers.add_parser("channels", help="Manage channels")
     channels_subparser = channels_parser.add_subparsers(dest="channels_command")
     channels_subparser.add_parser("ls", help="List all the channels in the cache")
-    channels_subparser.add_parser("generate-index", help="Generate index for a channel").add_argument("channel_name", help="The name of the channel")
-    channels_subparser.add_parser("sync").add_argument("channel_names", nargs='+')
+    channels_subparser.add_parser("get", help="Get the channel details from YouTube").add_argument(
+        "channel_username", help="The username of the channel")
+    channels_subparser.add_parser(
+        "update", help="Obtain new information for channel from the YouTube API").add_argument(
+            "channel_names", nargs="+")
+    channels_subparser.add_parser("generate-index", help="Generate index for a channel").add_argument(
+        "channel_name", help="The name of the channel")
+    channels_subparser.add_parser("sync").add_argument("channel_names", nargs="+")
 
     videos_parser = subparsers.add_parser("videos", help="Manage videos")
     videos_subparser = videos_parser.add_subparsers(dest="videos_command")
@@ -172,7 +178,7 @@ def get_videos_for_channel(channel_name):
             "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
         )
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_name)
     download_path = os.path.join(download_root_path, channel_name)
     videos = db.get_videos(cursor, channel_id, False)
     cursor.close()
@@ -271,7 +277,7 @@ def process_admin_build_thumbnails_command(channel_name):
 
 def process_admin_update_video_info_command(channel_name):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_name)
     videos = db.get_videos(cursor, channel_id, False)
     videos_len = len(videos)
     for i, video in enumerate(videos):
@@ -288,7 +294,7 @@ def process_admin_update_video_info_command(channel_name):
 
 def process_list_videos_command(channel_name, not_downloaded, use_xls):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_name)
     print(f"{channel_id}")
     videos = db.get_videos(cursor, channel_id, not_downloaded)
     if use_xls:
@@ -322,12 +328,30 @@ def process_update_root_path_command():
     conn.commit()
     cursor.close()
     conn.close()
-    pass
+
+
+def process_channels_get_command(youtube, channel_username):
+    channel = yt.get_channel_info(youtube, channel_username)
+    (conn, cursor) = db.create_or_get_conn()
+    db.save_channel_details(cursor, channel)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def process_channels_update_command(youtube, channel_names):
+    for channel_name in channel_names:
+        channel = yt.get_channel_info(youtube, channel_name)
+        (conn, cursor) = db.create_or_get_conn()
+        db.save_updated_channel_details(cursor, channel)
+        conn.commit()
+        cursor.close()
+        conn.close()
 
 
 def process_get_videos_command(youtube, channel_name):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = yt.get_channel_info(youtube, channel_name)
+    channel_id = yt.get_channel_id_from_name(youtube, channel_name)
     db.save_channel(cursor, channel_id, channel_name)
     videos = yt.get_channel_videos(youtube, channel_id)
     for video in videos:
@@ -419,7 +443,7 @@ def process_generate_index_command(channel_name):
 
 def process_list_playlists_command(channel_name, add_unlisted, add_external):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_name)
     playlists = db.get_playlists(cursor, channel_id)
     for playlist in playlists:
         db.get_playlist_items(cursor, playlist)
@@ -440,7 +464,7 @@ def process_list_playlists_command(channel_name, add_unlisted, add_external):
 def process_get_playists_command(youtube, channel_name):
     print(f"Getting playlists {channel_name} from YouTube")
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_name)
     playlists = yt.get_playlists_for_channel(youtube, channel_id)
 
     video_ids = db.get_all_video_ids(cursor)
@@ -458,7 +482,7 @@ def process_get_playists_command(youtube, channel_name):
 
 def process_delete_playist_command(channel_name):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_name(cursor, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_name)
     db.delete_playlists(cursor, channel_id)
     conn.commit()
     cursor.close()
@@ -477,10 +501,14 @@ def main():
     if args.command_group == "channels":
         if args.channels_command == "generate-index":
             process_generate_index_command(args.channel_name)
+        if args.channels_command == "get":
+            process_channels_get_command(youtube, args.channel_username)
         elif args.channels_command == "ls":
             process_list_channel_command()
         elif args.channels_command == "sync":
             process_sync_command(youtube, args.channel_names)
+        if args.channels_command == "update":
+            process_channels_update_command(youtube, args.channel_names)
     elif args.command_group == "admin":
         if args.admin_command == "build-thumbnails":
             process_admin_build_thumbnails_command(args.channel_name)
