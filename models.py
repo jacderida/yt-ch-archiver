@@ -263,121 +263,122 @@ class SyncReport:
 
 
 class VideoListSpreadsheet():
-    def __init__(self, channel_name):
-        self.channel_name = channel_name
-
     def sanitize_string(self, s):
         # Remove control characters
         return ''.join(ch for ch in s if unicodedata.category(ch)[0]!="C")
 
-    def generate_report(self, videos, file_path):
+    def generate_report(self, report_data, file_path):
         download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
         if not download_root_path:
             raise Exception(
                 "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
             )
-        channel_path = Path(download_root_path).joinpath(self.channel_name)
-
         workbook = Workbook()
-        sheet = workbook.create_sheet(self.channel_name, 0)
-
         green_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
         red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
         blue_fill = PatternFill(start_color="ADD8E6", end_color="ADD8E6", fill_type="solid")
-
-        headers = ["", "ID", "Date", "Title", "Status", "Duration", "Resolution", "Description"]
-        for col_num, header in enumerate(headers, 1):
-            col_letter = chr(64 + col_num)
-            sheet[f"{col_letter}1"] = header
 
         thumb_width = 150
         thumb_height = 150
         thumb_row_height = thumb_height * 0.76
         thumb_row_width = thumb_width / 8
 
-        sheet_number = 2
-        videos_len = len(videos)
-        row_num = 2
-        video_count = 1
-        for video in videos:
-            if row_num > 1000:
-                row_num = 2
-                print("Creating new sheet")
-                sheet = workbook.create_sheet(f"{self.channel_name}{sheet_number}", 0)
-                sheet_number += 1
-                headers = ["", "ID", "Date", "Title", "Status", "Duration", "Resolution", "Description"]
-                for col_num, header in enumerate(headers, 1):
-                    col_letter = chr(64 + col_num)
-                    sheet[f"{col_letter}1"] = header
+        for channel_name, videos in report_data.items():
+            channel_path = Path(download_root_path).joinpath(channel_name)
+            print(f"Creating new sheet for {channel_name}")
+            sheet = workbook.create_sheet(channel_name, 0)
 
-            print(f"Processing video {video_count} of {videos_len}")
-            if video.saved_path:
-                title = video.title
-                duration = video.duration
-                resolution = video.resolution
+            headers = ["", "ID", "Date", "Title", "Status", "Duration", "Resolution", "Description"]
+            for col_num, header in enumerate(headers, 1):
+                col_letter = chr(64 + col_num)
+                sheet[f"{col_letter}1"] = header
 
-                info_path = channel_path.joinpath("info").joinpath(f"{video.id}.info.json")
-                with open(info_path, "r") as info_file:
-                    info = json.load(info_file)
-                upload_date = info["upload_date"]
-                upload_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+            sheet_number = 2
+            videos_len = len(videos)
+            row_num = 2
+            video_count = 1
+            for video in videos:
+                if row_num > 1000:
+                    row_num = 2
+                    print(f"Creating new sheet for {channel_name}")
+                    sheet = workbook.create_sheet(f"{channel_name}{sheet_number}", 0)
+                    sheet_number += 1
+                    headers = ["", "ID", "Date", "Title", "Status", "Duration", "Resolution", "Description"]
+                    for col_num, header in enumerate(headers, 1):
+                        col_letter = chr(64 + col_num)
+                        sheet[f"{col_letter}1"] = header
 
-                description_path = channel_path.joinpath(
-                    "description").joinpath(f"{video.id}.description")
-                with open(description_path, "r") as description_file:
-                    description = description_file.read()
+                print(f"Processing video {video_count} of {videos_len}: {video.id}")
+                if video.saved_path:
+                    title = video.title
+                    duration = video.duration
+                    resolution = video.resolution
 
-                thumbnail_path = Path(video.saved_path).parent.parent.joinpath(
-                    "thumbnail").joinpath(f"{video.id}.jpg")
-                if not thumbnail_path.exists():
-                    raise Exception(f"Thumbnail not found at {thumbnail_path}")
-                thumbnail_image = Image(thumbnail_path)
-                thumbnail_image.width = thumb_width
-                thumbnail_image.height = thumb_height
+                    info_path = channel_path.joinpath("info").joinpath(f"{video.id}.info.json")
+                    if info_path.exists():
+                        with open(info_path, "r") as info_file:
+                            info = json.load(info_file)
+                        upload_date = info["upload_date"]
+                        upload_date = datetime.strptime(upload_date, "%Y%m%d").strftime("%Y-%m-%d")
+                    else:
+                        upload_date = "unknown"
 
-                sheet.row_dimensions[row_num].height = thumb_row_height
-                sheet.column_dimensions['A'].width = thumb_row_width
-            
-                sheet.add_image(thumbnail_image, f"A{row_num}")
-            elif video.is_private:
-                title = video.title
-                duration = "N/A"
-                resolution = "N/A"
-                description = ""
-                upload_date = ""
-            else:
-                cleaned_error = "Video unavailable." + video.download_error.split("Video unavailable.", 1)[-1]
-                title = f"{video.title} -- {cleaned_error}"
-                duration = "N/A"
-                resolution = "N/A"
-                description = ""
-                upload_date = ""
+                    description_path = channel_path.joinpath(
+                        "description").joinpath(f"{video.id}.description")
+                    with open(description_path, "r") as description_file:
+                        description = description_file.read()
 
-            status = "PUBLIC"
-            if video.is_private:
-                status = "PRIVATE"
-            elif video.is_unlisted:
-                status = "UNLISTED"
+                    thumbnail_path = Path(video.saved_path).parent.parent.joinpath(
+                        "thumbnail").joinpath(f"{video.id}.jpg")
+                    if not thumbnail_path.exists():
+                        raise Exception(f"Thumbnail not found at {thumbnail_path}")
+                    thumbnail_image = Image(thumbnail_path)
+                    thumbnail_image.width = thumb_width
+                    thumbnail_image.height = thumb_height
 
-            cell = sheet[f"B{row_num}"]
-            cell.value = video.id
-            cell.hyperlink = video.get_url()
-            cell.style = "Hyperlink"
-            sheet[f"C{row_num}"] = upload_date
-            sheet[f"D{row_num}"] = self.sanitize_string(title)
-            sheet[f"E{row_num}"] = status
-            sheet[f"F{row_num}"] = duration
-            sheet[f"G{row_num}"] = resolution
-            sheet[f"H{row_num}"] = description
-
-            if video.saved_path:
-                if video.is_unlisted:
-                    sheet.cell(row=row_num, column=5).fill = blue_fill
+                    sheet.row_dimensions[row_num].height = thumb_row_height
+                    sheet.column_dimensions['A'].width = thumb_row_width
+                
+                    sheet.add_image(thumbnail_image, f"A{row_num}")
+                elif video.is_private:
+                    title = video.title
+                    duration = "N/A"
+                    resolution = "N/A"
+                    description = ""
+                    upload_date = ""
                 else:
-                    sheet.cell(row=row_num, column=5).fill = green_fill
-            else:
-                for col_num in range(1, len(headers) + 1):
-                    sheet.cell(row=row_num, column=col_num).fill = red_fill
-            row_num += 1
-            video_count += 1
+                    cleaned_error = "Video unavailable." + video.download_error.split("Video unavailable.", 1)[-1]
+                    title = f"{video.title} -- {cleaned_error}"
+                    duration = "N/A"
+                    resolution = "N/A"
+                    description = ""
+                    upload_date = ""
+
+                status = "PUBLIC"
+                if video.is_private:
+                    status = "PRIVATE"
+                elif video.is_unlisted:
+                    status = "UNLISTED"
+
+                cell = sheet[f"B{row_num}"]
+                cell.value = video.id
+                cell.hyperlink = video.get_url()
+                cell.style = "Hyperlink"
+                sheet[f"C{row_num}"] = upload_date
+                sheet[f"D{row_num}"] = self.sanitize_string(title)
+                sheet[f"E{row_num}"] = status
+                sheet[f"F{row_num}"] = duration
+                sheet[f"G{row_num}"] = resolution
+                sheet[f"H{row_num}"] = description
+
+                if video.saved_path:
+                    if video.is_unlisted:
+                        sheet.cell(row=row_num, column=5).fill = blue_fill
+                    else:
+                        sheet.cell(row=row_num, column=5).fill = green_fill
+                else:
+                    for col_num in range(1, len(headers) + 1):
+                        sheet.cell(row=row_num, column=col_num).fill = red_fill
+                row_num += 1
+                video_count += 1
         workbook.save(file_path)

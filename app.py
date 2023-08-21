@@ -43,8 +43,11 @@ def get_args():
     channels_subparser.add_parser("get", help="Get the channel details from YouTube").add_argument(
         "channel_username", help="The username of the channel")
     channels_subparser.add_parser(
+        "report", help="Create a spreadsheet of videos for the given channels").add_argument(
+            "channel_usernames", nargs="+")
+    channels_subparser.add_parser(
         "update", help="Obtain new information for channel from the YouTube API").add_argument(
-            "channel_names", nargs="+")
+            "channel_usernames", nargs="+")
     channels_subparser.add_parser("generate-index", help="Generate index for a channel").add_argument(
         "channel_name", help="The name of the channel")
     channels_subparser.add_parser("sync").add_argument("channel_names", nargs="+")
@@ -352,6 +355,20 @@ def process_channels_update_command(youtube, channel_names):
         conn.close()
 
 
+def process_channels_report_command(channel_names):
+    report_data = {}
+    (conn, cursor) = db.create_or_get_conn()
+    for channel_name in channel_names:
+        print(f"Retrieving data for {channel_name}...")
+        channel_id = db.get_channel_id_from_username(cursor, channel_name)
+        videos = db.get_videos(cursor, channel_id, False)
+        report_data[channel_name] = videos
+    cursor.close()
+    conn.close()
+    report = VideoListSpreadsheet()
+    report.generate_report(report_data, "videos.xlsx")
+
+
 def process_get_videos_command(youtube, channel_name):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = yt.get_channel_id_from_name(youtube, channel_name)
@@ -508,10 +525,12 @@ def main():
             process_channels_get_command(youtube, args.channel_username)
         elif args.channels_command == "ls":
             process_list_channel_command()
+        if args.channels_command == "report":
+            process_channels_report_command(args.channel_usernames)
         elif args.channels_command == "sync":
             process_sync_command(youtube, args.channel_names)
         if args.channels_command == "update":
-            process_channels_update_command(youtube, args.channel_names)
+            process_channels_update_command(youtube, args.channel_usernames)
     elif args.command_group == "admin":
         if args.admin_command == "build-thumbnails":
             process_admin_build_thumbnails_command(args.channel_name)
