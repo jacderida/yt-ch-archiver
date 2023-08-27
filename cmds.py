@@ -190,13 +190,30 @@ def channels_sync(youtube, channel_names):
 
 
 def channels_update(youtube, channel_names):
-    for channel_name in channel_names:
-        channel = yt.get_channel_info(youtube, channel_name)
-        (conn, cursor) = db.create_or_get_conn()
-        db.save_updated_channel_details(cursor, channel)
-        conn.commit()
+    (conn, cursor) = db.create_or_get_conn()
+    if channel_names:
+        for channel_name in channel_names:
+            channel = yt.get_channel_info(youtube, channel_name)
+            db.save_updated_channel_details(cursor, channel)
+            conn.commit()
         cursor.close()
         conn.close()
+        return
+    print("Updating channel information for all cached channels")
+    channels = db.get_all_channel_info(cursor)
+    channel_count = len(channels)
+    for i, channel in enumerate(channels):
+        try:
+            print(f"Processing channel {i + 1} of {channel_count}")
+            current_channel_info = yt.get_channel_info_by_id(youtube, channel.id)
+            db.save_updated_channel_details(cursor, current_channel_info)
+            conn.commit()
+        except Exception as e:
+            print(f"Failed to update {channel.id}:")
+            print(e)
+            continue
+    cursor.close()
+    conn.close()
 
 
 #

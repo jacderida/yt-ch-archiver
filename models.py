@@ -80,8 +80,12 @@ class Channel:
         snippet = item["snippet"]
         published_at = snippet["publishedAt"]
         title = snippet["title"]
+        if "customUrl" in snippet:
+            username = snippet["customUrl"]
+        else:
+            username = title
         description = snippet["description"]
-        channel = Channel(channel_id, snippet["customUrl"], published_at, title, description)
+        channel = Channel(channel_id, username, published_at, title, description)
         channel.get_thumbnail(
             snippet["thumbnails"]["default"]["url"], ChannelThumbnailType.SMALL)
         channel.get_thumbnail(
@@ -89,6 +93,10 @@ class Channel:
         channel.get_thumbnail(
             snippet["thumbnails"]["high"]["url"], ChannelThumbnailType.LARGE)
         return channel
+
+    @staticmethod
+    def from_row(row):
+        return Channel(row[0], row[1], row[2], row[3], row[4])
 
 
 class Video:

@@ -17,7 +17,7 @@ def get_channel_info(youtube, channel_username):
 
 
 def get_channel_info_by_id(youtube, channel_id):
-    print("Retrieving channel information from YouTube...")
+    print(f"Retrieving channel information for {channel_id} from YouTube...")
     request = youtube.channels().list(part="snippet", id=channel_id)
     response = request.execute()
     if not "items" in response:

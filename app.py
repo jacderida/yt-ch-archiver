@@ -40,7 +40,7 @@ def get_args():
     channels_subparser.add_parser("sync").add_argument("channel_names", nargs="+")
     channels_subparser.add_parser(
         "update", help="Obtain new information for channel from the YouTube API").add_argument(
-            "channel_usernames", nargs="+")
+            "--channel-usernames", nargs="+")
 
     videos_parser = subparsers.add_parser("videos", help="Manage videos")
     videos_subparser = videos_parser.add_subparsers(dest="videos_command")

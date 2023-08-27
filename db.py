@@ -345,6 +345,16 @@ def get_channels(cursor):
     return channels
 
 
+def get_all_channel_info(cursor):
+    channels = []
+    cursor.execute("SELECT id, username, published_at, title, description FROM channels")
+    rows = cursor.fetchall()
+    for row in rows:
+        channel = Channel.from_row(row)
+        channels.append(channel)
+    return channels
+
+
 def get_playlists(cursor, channel_id):
     playlists = []
     cursor.execute(
