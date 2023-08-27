@@ -20,8 +20,11 @@ def get_args():
         help="Build thumbnails for videos that have already been retrieved").add_argument(
             "channel_name", help="The name of the channel")
     admin_subparser.add_parser(
-        "update-root-path",
-        help="Update the root path of all the videos to the currently set path")
+        "update-video-root-path",
+        help="Update the root path of all saved videos. Use if you changed the path.")
+    admin_subparser.add_parser(
+        "update-video-saved-path",
+        help="Update the whole path of all saved videos. Use if the download path scheme has changed.")
     admin_subparser.add_parser(
         "update-video-info",
         help="Update video cache records with duration and resolution").add_argument(
@@ -46,7 +49,7 @@ def get_args():
     videos_subparser = videos_parser.add_subparsers(dest="videos_command")
     download_parser = videos_subparser.add_parser("download", help="Download videos")
     download_parser.add_argument(
-        "--channel-name", help="Download all videos for the given channel")
+        "--channel-username", help="Download all videos for the given channel")
     download_parser.add_argument(
         "--mark-unlisted",
         action="store_true",
@@ -110,8 +113,10 @@ def main():
             cmds.admin_build_thumbnails(args.channel_name)
         elif args.admin_command == "update-video-info":
             cmds.admin_update_video_info(args.channel_name)
-        elif args.videos_command == "update-root-path":
-            cmds.admin_update_root_path()
+        elif args.admin_command == "update-video-root-path":
+            cmds.admin_update_video_root_path()
+        elif args.admin_command == "update-video-saved-path":
+            cmds.admin_update_video_saved_path()
     elif args.command_group == "channels":
         if args.channels_command == "generate-index":
             cmds.channels_generate_index(args.channel_name)
@@ -130,7 +135,7 @@ def main():
             skip_ids = []
             if args.skip_ids:
                 skip_ids = args.skip_ids.split(",")
-            cmds.videos_download(youtube, args.channel_name, skip_ids, args.video_id, False)
+            cmds.videos_download(youtube, args.channel_username, skip_ids, args.video_id, False)
         elif args.videos_command == "get":
             cmds.videos_get(youtube, args.channel_name)
         elif args.videos_command == "ls":

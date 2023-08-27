@@ -326,8 +326,7 @@ def get_all_video_ids(cursor):
 
 def get_downloaded_videos(cursor):
     videos = []
-    query = "SELECT * FROM videos WHERE saved_path IS NOT NULL"
-    cursor.execute(query)
+    cursor.execute("SELECT * FROM videos WHERE saved_path IS NOT NULL AND saved_path != ''")
     rows = cursor.fetchall()
     for row in rows:
         video = Video.from_row(row)
@@ -337,7 +336,7 @@ def get_downloaded_videos(cursor):
 
 def get_channels(cursor):
     channels = {}
-    query = "SELECT * FROM channels"
+    query = "SELECT id, username FROM channels"
     cursor.execute(query)
     rows = cursor.fetchall()
     for row in rows:

@@ -66,7 +66,7 @@ def admin_update_video_info(channel_name):
     conn.close()
 
 
-def admin_update_root_path():
+def admin_update_video_root_path():
     download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
     if not download_root_path:
         raise Exception(
@@ -77,13 +77,26 @@ def admin_update_root_path():
     videos = db.get_downloaded_videos(cursor)
     channels = db.get_channels(cursor)
     for video in videos:
-        if video.saved_path:
-            current_path = Path(video.saved_path)
-            current_root_path = Path(video.saved_path).parent.parent.parent
-            if download_root_path != current_root_path:
-                new_path = download_root_path.joinpath(
-                    channels[video.channel_id]).joinpath("video").joinpath(current_path.name)
-                db.save_video_path(cursor, str(new_path), video.id)
+        current_path = Path(video.saved_path)
+        current_root_path = Path(video.saved_path).parent.parent.parent
+        if download_root_path != current_root_path:
+            new_path = download_root_path.joinpath(
+                channels[video.channel_id]).joinpath("video").joinpath(current_path.name)
+            db.save_video_path(cursor, str(new_path), video.id)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def admin_update_video_saved_path():
+    (conn, cursor) = db.create_or_get_conn()
+    videos = db.get_downloaded_videos(cursor)
+    channels = db.get_channels(cursor)
+    for video in videos:
+        new_path = get_channel_download_path(channels[video.channel_id])
+        new_path = new_path.joinpath("video")
+        new_path = new_path.joinpath(f"{video.id}.mp4")
+        db.save_video_path(cursor, str(new_path), video.id)
     conn.commit()
     cursor.close()
     conn.close()
@@ -152,12 +165,9 @@ def channels_get(youtube, channel_username):
 
 def channels_ls():
     (conn, cursor) = db.create_or_get_conn()
-    cursor.execute("SELECT * FROM channels")
-    rows = cursor.fetchall()
-    for row in rows:
-        id = row[0]
-        name = row[1]
-        print(f"{id}: {name}")
+    channels = db.get_all_channel_info(cursor)
+    for channel in channels:
+        print(f"{channel.id}: {channel.username} -- {channel.title}")
     cursor.close()
     conn.close()
 
@@ -219,9 +229,9 @@ def channels_update(youtube, channel_names):
 #
 # Video Commands
 #
-def videos_download(youtube, channel_name, skip_ids, video_id, mark_unlisted):
-    if channel_name:
-        (_, failed_videos) = download_videos_for_channel(channel_name, skip_ids)
+def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted):
+    if channel_username:
+        (_, failed_videos) = download_videos_for_channel(channel_username, skip_ids)
         for video in failed_videos:
             print(f"Failed to download {video.id}: {video.download_error}")
         return
@@ -239,7 +249,7 @@ def videos_download(youtube, channel_name, skip_ids, video_id, mark_unlisted):
                     channel = db.get_channel_by_id(cursor, video.channel_id)
                     if not channel:
                         raise Exception(f"Channel with ID {video.channel_id} is not in the cache")
-                    channel_download_path = get_video_download_path(channel.username)
+                    channel_download_path = get_channel_download_path(channel.username)
                     download_videos([video], [], channel_download_path)
             else:
                 (video, channel) = yt.get_video(youtube, cursor, video_id)
@@ -247,7 +257,7 @@ def videos_download(youtube, channel_name, skip_ids, video_id, mark_unlisted):
                     video.is_unlisted = True
                 db.save_channel_details(cursor, channel)
                 db.save_video(cursor, video)
-                channel_download_path = get_video_download_path(channel.username)
+                channel_download_path = get_channel_download_path(channel.username)
                 download_videos([video], [], channel_download_path)
         finally:
             conn.commit()
@@ -405,9 +415,9 @@ def get_media_info(video_path):
     return (duration, resolution)
 
 
-def download_videos_for_channel(channel_name, skip_ids):
-    (videos, download_path) = get_videos_for_channel(channel_name)
-    print(f"Attempting to download videos for {channel_name}...")
+def download_videos_for_channel(channel_username, skip_ids):
+    (videos, download_path) = get_videos_for_channel(channel_username)
+    print(f"Attempting to download videos for {channel_username}...")
     return download_videos(videos, skip_ids, download_path)
 
 
@@ -508,7 +518,9 @@ def get_full_video_path(download_path, video_id):
     return files[0]
 
 
-def get_video_download_path(channel_username):
+def get_channel_download_path(channel_username):
+    if channel_username[0] != '@':
+        raise Exception(f"Channel {channel_username} does not follow the correct username convention")
     channel_username = channel_username[1:] # strip the @ from the username
     download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
     if not download_root_path:
@@ -516,4 +528,4 @@ def get_video_download_path(channel_username):
             "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
         )
     download_path = os.path.join(download_root_path, channel_username)
-    return download_path
+    return Path(download_path)
