@@ -1,7 +1,7 @@
 import os
 import sqlite3
 
-from models import Playlist, Video
+from models import Channel, Playlist, Video
 
 
 def add_new_column(cursor, table, name, data_type, null_status, default_value):
@@ -290,6 +290,16 @@ def get_channel_name_from_id(cursor, channel_id):
     )
 
 
+def get_channel_by_id(cursor, channel_id):
+    cursor.execute(
+        "SELECT id, username, published_at, title, description FROM channels WHERE id = ?",
+        (channel_id,))
+    result = cursor.fetchone()
+    if result:
+        return Channel(result[0], result[1], result[2], result[3], result[4])
+    return None
+
+
 def get_videos(cursor, channel_id, not_downloaded):
     videos = []
     query = "SELECT * FROM videos WHERE channel_id = ?"
@@ -377,6 +387,14 @@ def get_all_downloaded_video_ids(cursor):
     )
     rows = cursor.fetchall()
     return [row[0] for row in rows]
+
+
+def get_video_by_id(cursor, video_id):
+    cursor.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
+    result = cursor.fetchone()
+    if result:
+        return Video.from_row(result)
+    return None
 
 
 def delete_playlists(cursor, channel_id):

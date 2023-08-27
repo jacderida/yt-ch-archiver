@@ -13,19 +13,16 @@ def get_channel_info(youtube, channel_username):
         channel_id = get_channel_id_from_name(youtube, channel_username)
         request = youtube.channels().list(part="snippet", id=channel_id)
         response = request.execute()
+    return Channel.from_channel_response_item(response["items"][0])
 
-    channel_id = response["items"][0]["id"]
-    published_at = response["items"][0]["snippet"]["publishedAt"]
-    title = response["items"][0]["snippet"]["title"]
-    description = response["items"][0]["snippet"]["description"]
-    channel = Channel(channel_id, channel_username, published_at, title, description)
-    channel.get_thumbnail(
-        response["items"][0]["snippet"]["thumbnails"]["default"]["url"], ChannelThumbnailType.SMALL)
-    channel.get_thumbnail(
-        response["items"][0]["snippet"]["thumbnails"]["medium"]["url"], ChannelThumbnailType.MEDIUM)
-    channel.get_thumbnail(
-        response["items"][0]["snippet"]["thumbnails"]["high"]["url"], ChannelThumbnailType.LARGE)
-    return channel
+
+def get_channel_info_by_id(youtube, channel_id):
+    print("Retrieving channel information from YouTube...")
+    request = youtube.channels().list(part="snippet", id=channel_id)
+    response = request.execute()
+    if not "items" in response:
+        raise Exception(f"Channel with ID {channel_id} not found on YouTube")
+    return Channel.from_channel_response_item(response["items"][0])
 
 
 def get_channel_id_from_name(youtube, channel_name):
@@ -138,3 +135,25 @@ def get_playlist_items(youtube, cursor, playlists, video_ids):
                 is_deleted,
             )
             print(f"Retrieved playlist item {title}")
+
+
+def get_video(youtube, cursor, video_id):
+    print(f"Retrieving video info for {video_id} from YouTube...")
+    request = youtube.videos().list(part="snippet", id=video_id)
+    response = request.execute()
+    response_items = response["items"]
+    if len(response_items) == 0:
+        raise Exception(f"Could not retrieve video with ID {video_id}")
+
+    video_snippet = response_items[0]["snippet"]
+    channel_id = video_snippet["channelId"]
+    print(f"Video {video_id} has channel ID {channel_id}")
+    channel = db.get_channel_by_id(cursor, channel_id)
+    if channel:
+        print(f"Channel ID {channel_id} is for {channel.title}")
+        print(f"{channel.title} was already in the cache")
+    else:
+        print(f"Channel ID {channel_id} is not in the cache")
+        channel = get_channel_info_by_id(youtube, channel_id)
+    video = Video(video_id, video_snippet["title"], channel_id, "", False, False)
+    return (video, channel)

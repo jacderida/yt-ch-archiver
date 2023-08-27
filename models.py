@@ -74,6 +74,22 @@ class Channel:
         if thumb_type == ChannelThumbnailType.SMALL:
             self.small_thumbnail = PilImage.open(BytesIO(image_bytes))
 
+    @staticmethod
+    def from_channel_response_item(item):
+        channel_id = item["id"]
+        snippet = item["snippet"]
+        published_at = snippet["publishedAt"]
+        title = snippet["title"]
+        description = snippet["description"]
+        channel = Channel(channel_id, snippet["customUrl"], published_at, title, description)
+        channel.get_thumbnail(
+            snippet["thumbnails"]["default"]["url"], ChannelThumbnailType.SMALL)
+        channel.get_thumbnail(
+            snippet["thumbnails"]["medium"]["url"], ChannelThumbnailType.MEDIUM)
+        channel.get_thumbnail(
+            snippet["thumbnails"]["high"]["url"], ChannelThumbnailType.LARGE)
+        return channel
+
 
 class Video:
     def __init__(self, id, title, channel_id, saved_path, is_unlisted, is_private):

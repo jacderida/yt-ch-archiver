@@ -44,24 +44,55 @@ def get_args():
 
     videos_parser = subparsers.add_parser("videos", help="Manage videos")
     videos_subparser = videos_parser.add_subparsers(dest="videos_command")
-    download_parser = videos_subparser.add_parser("download", help="Download all the listed videos for a channel")
-    download_parser.add_argument("channel_name", help="The name of the channel")
-    download_parser.add_argument("--skip-ids", type=str, help="A comma-separated list of video IDs to skip")
-    videos_subparser.add_parser("get", help="Use the YouTube API to get a list of the videos for a channel").add_argument("channel_name", help="The name of the channel")
+    download_parser = videos_subparser.add_parser("download", help="Download videos")
+    download_parser.add_argument(
+        "--channel-name", help="Download all videos for the given channel")
+    download_parser.add_argument(
+        "--mark-unlisted",
+        action="store_true",
+        help="Mark the video unlisted. The YouTube Data API does not contain that information.")
+    download_parser.add_argument(
+        "--skip-ids",
+        type=str,
+        help="A comma-separated list of video IDs to skip. Only applies to the --channel-name argument.")
+    download_parser.add_argument(
+        "--video-id", help="Download the video with the given ID and cache its info in the database")
+    videos_subparser.add_parser(
+        "get",
+        help="Use the YouTube API to get and cache video information for a channel").add_argument(
+            "channel_name", help="The name of the channel")
     ls_parser = videos_subparser.add_parser("ls", help="List all the videos in the cache")
     ls_parser.add_argument("channel_name", help="The name of the channel")
-    ls_parser.add_argument("--not-downloaded", action="store_true", help="Display only videos that haven't yet been downloaded")
+    ls_parser.add_argument(
+        "--not-downloaded",
+        action="store_true",
+        help="Display only videos that haven't yet been downloaded")
     ls_parser.add_argument("--xls", action="store_true", help="Generate the list as a spreadsheet")
 
     playlists_parser = subparsers.add_parser("playlists", help="Manage playlists")
     playlists_subparser = playlists_parser.add_subparsers(dest="playlists_command")
-    playlists_subparser.add_parser("delete", help="Delete playlists for a channel").add_argument("channel_name", help="The name of the channel")
-    playlists_subparser.add_parser("download", help="Download playlists for a channel").add_argument("channel_name", help="The name of the channel")
-    playlists_subparser.add_parser("get", help="Get playlists for a channel").add_argument("channel_name", help="The name of the channel")
+    playlists_subparser.add_parser(
+        "delete",
+        help="Delete playlists for a channel").add_argument(
+            "channel_name", help="The name of the channel")
+    playlists_subparser.add_parser(
+        "download",
+        help="Download playlists for a channel").add_argument(
+            "channel_name", help="The name of the channel")
+    playlists_subparser.add_parser(
+        "get",
+        help="Get playlists for a channel").add_argument(
+            "channel_name", help="The name of the channel")
     ls_playlist_parser = playlists_subparser.add_parser("ls", help="List playlists for a channel")
     ls_playlist_parser.add_argument("channel_name", help="The name of the channel")
-    ls_playlist_parser.add_argument("--add-unlisted", action="store_true", help="Add unlisted videos to the cache")
-    ls_playlist_parser.add_argument("--add-external", action="store_true", help="Add videos that are external to the channel to the cache")
+    ls_playlist_parser.add_argument(
+        "--add-unlisted",
+        action="store_true",
+        help="Add unlisted videos to the cache")
+    ls_playlist_parser.add_argument(
+        "--add-external",
+        action="store_true",
+        help="Add videos that are external to the channel to the cache")
 
     return parser.parse_args()
 
@@ -99,7 +130,7 @@ def main():
             skip_ids = []
             if args.skip_ids:
                 skip_ids = args.skip_ids.split(",")
-            cmds.videos_download(args.channel_name, skip_ids)
+            cmds.videos_download(youtube, args.channel_name, skip_ids, args.video_id, False)
         elif args.videos_command == "get":
             cmds.videos_get(youtube, args.channel_name)
         elif args.videos_command == "ls":

@@ -200,12 +200,42 @@ def channels_update(youtube, channel_names):
 
 
 #
-# Videos
+# Video Commands
 #
-def videos_download(channel_name, skip_ids):
-    (_, failed_videos) = download_videos_for_channel(channel_name, skip_ids)
-    for video in failed_videos:
-        print(f"Failed to download {video.id}: {video.download_error}")
+def videos_download(youtube, channel_name, skip_ids, video_id, mark_unlisted):
+    if channel_name:
+        (_, failed_videos) = download_videos_for_channel(channel_name, skip_ids)
+        for video in failed_videos:
+            print(f"Failed to download {video.id}: {video.download_error}")
+        return
+    if video_id:
+        (conn, cursor) = db.create_or_get_conn()
+        try:
+            video = db.get_video_by_id(cursor, video_id)
+            if video:
+                if video.saved_path:
+                    print(f"Video with ID {video_id} has already been downloaded")
+                    print(f"Title: {video.title}")
+                    print(f"Saved to: {video.saved_path}")
+                    return
+                else:
+                    channel = db.get_channel_by_id(cursor, video.channel_id)
+                    if not channel:
+                        raise Exception(f"Channel with ID {video.channel_id} is not in the cache")
+                    channel_download_path = get_video_download_path(channel.username)
+                    download_videos([video], [], channel_download_path)
+            else:
+                (video, channel) = yt.get_video(youtube, cursor, video_id)
+                if mark_unlisted:
+                    video.is_unlisted = True
+                db.save_channel_details(cursor, channel)
+                db.save_video(cursor, video)
+                channel_download_path = get_video_download_path(channel.username)
+                download_videos([video], [], channel_download_path)
+        finally:
+            conn.commit()
+            cursor.close()
+            conn.close()
 
 
 def videos_get(youtube, channel_name):
@@ -361,6 +391,10 @@ def get_media_info(video_path):
 def download_videos_for_channel(channel_name, skip_ids):
     (videos, download_path) = get_videos_for_channel(channel_name)
     print(f"Attempting to download videos for {channel_name}...")
+    return download_videos(videos, skip_ids, download_path)
+
+
+def download_videos(videos, skip_ids, channel_download_path):
     downloaded_videos = []
     failed_videos = []
     for video in videos:
@@ -383,9 +417,9 @@ def download_videos_for_channel(channel_name, skip_ids):
                 "infojson": "%(id)s.%(ext)s",
             },
             "paths": {
-                "home": os.path.join(download_path, "video"),
-                "description": os.path.join(download_path, "description"),
-                "infojson": os.path.join(download_path, "info"),
+                "home": os.path.join(channel_download_path, "video"),
+                "description": os.path.join(channel_download_path, "description"),
+                "infojson": os.path.join(channel_download_path, "info"),
             },
             "nooverwrites": True,
             "nopart": True,
@@ -397,7 +431,7 @@ def download_videos_for_channel(channel_name, skip_ids):
             try:
                 ydl.download([video.get_url()])
                 video.saved_path = get_full_video_path(
-                    os.path.join(download_path, "video"), video.id
+                    os.path.join(channel_download_path, "video"), video.id
                 )
                 (duration, resolution) = get_media_info(video.saved_path)
                 video.duration = duration
@@ -455,3 +489,14 @@ def get_full_video_path(download_path, video_id):
     pattern = os.path.join(download_path, f"{video_id}.[!webp|jpg]*")
     files = glob.glob(pattern)
     return files[0]
+
+
+def get_video_download_path(channel_username):
+    channel_username = channel_username[1:] # strip the @ from the username
+    download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
+    if not download_root_path:
+        raise Exception(
+            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
+        )
+    download_path = os.path.join(download_root_path, channel_username)
+    return download_path
