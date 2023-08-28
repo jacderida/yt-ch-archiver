@@ -405,3 +405,50 @@ class VideoListSpreadsheet():
                 row_num += 1
                 video_count += 1
         workbook.save(file_path)
+
+
+class PlaylistDownloadReport:
+    def __init__(self):
+        self.start_time = datetime.now()
+        self.videos_downloaded = []
+        self.failed_downloads = []
+        self.finish_time = None
+
+    def _generate_report(self):
+        report = []
+
+        report.append("###############################################")
+        report.append("#####                                     #####")
+        report.append("#####      PLAYLIST DOWNLOAD REPORT       #####")
+        report.append("#####                                     #####")
+        report.append("###############################################")
+        report.append("Started: " + str(self.start_time))
+        report.append("Finished: " + str(self.finish_time))
+
+        report.append("\n################################")
+        report.append("###### DOWNLOADED VIDEOS #######")
+        report.append("################################")
+        for video in self.videos_downloaded:
+            report.append(f"{video.id}: {video.title}")
+
+        if len(self.failed_downloads) > 0:
+            report.append("\n############################")
+            report.append("###### FAILED VIDEOS #######")
+            report.append("############################")
+            for video in self.failed_downloads:
+                report.append(f"{video.id}: {video.title} -- {video.download_error}")
+        return "\n".join(report)
+
+    def add_data_sources(self, videos_downloaded, failed_downloads):
+        self.videos_downloaded.extend(videos_downloaded)
+        self.failed_downloads.extend(failed_downloads)
+
+    def mark_finished(self):
+        self.finish_time = datetime.now()
+
+    def print(self):
+        print(self._generate_report())
+
+    def save(self, file_path):
+        with open(file_path, 'w') as file:
+            file.write(self._generate_report())

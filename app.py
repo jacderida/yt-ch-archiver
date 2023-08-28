@@ -78,14 +78,15 @@ def get_args():
         "delete",
         help="Delete playlists for a channel").add_argument(
             "channel_name", help="The name of the channel")
-    playlists_subparser.add_parser(
+    playlist_download_parser = playlists_subparser.add_parser(
         "download",
-        help="Download playlists for a channel").add_argument(
-            "channel_name", help="The name of the channel")
+        help="Download playlist items for playlists on a channel")
+    playlist_download_parser.add_argument("channel_username", help="The username of the channel")
+    playlist_download_parser.add_argument(
+        "--playlist-title", help="Only download this specific playlist. The title must match exactly.")
     playlists_subparser.add_parser(
         "get",
-        help="Get playlists for a channel").add_argument(
-            "channel_name", help="The name of the channel")
+        help="Get playlists for a channel").add_argument("channel_name", help="The name of the channel")
     ls_playlist_parser = playlists_subparser.add_parser("ls", help="List playlists for a channel")
     ls_playlist_parser.add_argument("channel_name", help="The name of the channel")
     ls_playlist_parser.add_argument(
@@ -131,14 +132,14 @@ def main():
         if args.channels_command == "update":
             cmds.channels_update(youtube, args.channel_usernames)
     elif args.command_group == "playlists":
-        if args.playlists_command == "download":
-            raise Exception("Not implemented yet")
+        if args.playlists_command == "delete":
+            cmds.playlists_delete(args.channel_name)
+        elif args.playlists_command == "download":
+            cmds.playlists_download(youtube, args.channel_username, args.playlist_title)
         elif args.playlists_command == "get":
             cmds.playlists_get(youtube, args.channel_name)
         elif args.playlists_command == "ls":
             cmds.playlists_ls(args.channel_name, args.add_unlisted, args.add_external)
-        elif args.playlists_command == "delete":
-            cmds.playlists_delete(args.channel_name)
     elif args.command_group == "videos":
         if args.videos_command == "download":
             skip_ids = []

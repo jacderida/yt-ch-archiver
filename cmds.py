@@ -7,7 +7,7 @@ import yt_dlp
 
 from bs4 import BeautifulSoup
 from datetime import datetime
-from models import SyncReport, Video, VideoListSpreadsheet
+from models import PlaylistDownloadReport, SyncReport, Video, VideoListSpreadsheet
 from pathlib import Path
 from PIL import Image
 from pymediainfo import MediaInfo
@@ -249,16 +249,14 @@ def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted
                     channel = db.get_channel_by_id(cursor, video.channel_id)
                     if not channel:
                         raise Exception(f"Channel with ID {video.channel_id} is not in the cache")
-                    channel_download_path = get_channel_download_path(channel.username)
-                    download_videos([video], [], channel_download_path)
+                    download_videos([video], [], { channel.id: channel_username })
             else:
                 (video, channel) = yt.get_video(youtube, cursor, video_id)
                 if mark_unlisted:
                     video.is_unlisted = True
                 db.save_channel_details(cursor, channel)
                 db.save_video(cursor, video)
-                channel_download_path = get_channel_download_path(channel.username)
-                download_videos([video], [], channel_download_path)
+                download_videos([video], [], { channel.id: channel_username })
         finally:
             conn.commit()
             cursor.close()
@@ -345,22 +343,67 @@ def playlists_delete(channel_name):
     print(f"Deleted playlists for {channel_name}")
 
 
+def playlists_download(youtube, channel_username, playlist_title):
+    (conn, cursor) = db.create_or_get_conn()
+    channel_id = db.get_channel_id_from_username(cursor, channel_username)
+    playlists = db.get_playlists(cursor, channel_id)
+    videos_to_download = []
+
+    if playlist_title:
+        playlists = [x for x in playlists if x.title == playlist_title]
+        if len(playlists) == 0:
+            raise Exception(f"Channel {channel_username} has no playlist named {playlist_title}")
+    for playlist in playlists:
+        db.get_playlist_items(cursor, playlist)
+        for item in playlist.items:
+            video = db.get_video_by_id(cursor, item.video_id)
+            if video:
+                if not video.saved_path:
+                    print(f"Adding video with ID {video.id} to download list")
+                    videos_to_download.append(video)
+                else:
+                    # Even though the video has a saved path set, it could be possible
+                    # that it was deleted unintentionally, so check that it actually
+                    # has been saved. If it hasn't, it will be downloaded again.
+                    if not os.path.exists(video.saved_path):
+                        print(f"Adding video with ID {video.id} to download list")
+                        videos_to_download.append(video)
+                    else:
+                        print(f"Video with ID {video.id} has already been downloaded")
+            else:
+                print(f"Video with ID {item.video_id} was not in the cache")
+                (video, _) = yt.get_video(youtube, cursor, item.video_id)
+                db.save_video(cursor, video)
+                conn.commit()
+                print(f"Adding video with ID {video.id} to download list")
+                videos_to_download.append(video)
+    # Playlists can have items which are videos that are external to the
+    # channel where the playlist is defined. Therefore, the entire channel list
+    # needs to be retrieved to be passed to the video downloading function,
+    # which needs the channel username to save the video to the correct
+    # location.
+    channel_id_name_table = db.get_channels(cursor)
+    cursor.close()
+    conn.close()
+
+    report = PlaylistDownloadReport() # created here to establish a start time for the process
+    (downloaded_videos, failed_videos) = download_videos(videos_to_download, [], channel_id_name_table)
+    report.mark_finished()
+    report.add_data_sources(downloaded_videos, failed_videos)
+    report.print()
+    report.save("playlist_download.log")
+
+
 #
 # Helpers
 #
-def get_videos_for_channel(channel_name):
-    download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
-    if not download_root_path:
-        raise Exception(
-            "The YT_CH_ARCHIVER_ROOT_PATH environment variable must be set"
-        )
+def get_videos_for_channel(channel_username):
     (conn, cursor) = db.create_or_get_conn()
-    channel_id = db.get_channel_id_from_username(cursor, channel_name)
-    download_path = os.path.join(download_root_path, channel_name)
+    channel_id = db.get_channel_id_from_username(cursor, channel_username)
     videos = db.get_videos(cursor, channel_id, False)
     cursor.close()
     conn.close()
-    return (videos, download_path)
+    return (videos, { channel_id: channel_username })
 
 
 def get_video_thumbnail_path(download_path, video_id):
@@ -417,12 +460,12 @@ def get_media_info(video_path):
 
 
 def download_videos_for_channel(channel_username, skip_ids):
-    (videos, download_path) = get_videos_for_channel(channel_username)
+    (videos, channel_id_name_table) = get_videos_for_channel(channel_username)
     print(f"Attempting to download videos for {channel_username}...")
-    return download_videos(videos, skip_ids, download_path)
+    return download_videos(videos, skip_ids, channel_id_name_table)
 
 
-def download_videos(videos, skip_ids, channel_download_path):
+def download_videos(videos, skip_ids, channel_id_name_table):
     downloaded_videos = []
     failed_videos = []
     for video in videos:
@@ -435,6 +478,7 @@ def download_videos(videos, skip_ids, channel_download_path):
         if video.id in skip_ids:
             print(f"{video.id} was on skip list. Skipping.")
             continue
+        channel_download_path = get_channel_download_path(channel_id_name_table[video.channel_id])
         ydl_opts = {
             "continue": True,
             "cookiesfrombrowser": ("firefox",),
