@@ -7,7 +7,7 @@ import yt_dlp
 
 from bs4 import BeautifulSoup
 from datetime import datetime
-from models import PlaylistDownloadReport, SyncReport, Video, VideoListSpreadsheet
+from models import VideoDownloadReport, SyncReport, Video, VideoListSpreadsheet
 from pathlib import Path
 from PIL import Image
 from pymediainfo import MediaInfo
@@ -231,9 +231,12 @@ def channels_update(youtube, channel_names):
 #
 def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted):
     if channel_username:
-        (_, failed_videos) = download_videos_for_channel(channel_username, skip_ids)
-        for video in failed_videos:
-            print(f"Failed to download {video.id}: {video.download_error}")
+        report = VideoDownloadReport() # created here to establish a start time for the process
+        (downloaded_videos, failed_videos) = download_videos_for_channel(channel_username, skip_ids)
+        report.mark_finished()
+        report.add_data_sources(downloaded_videos, failed_videos)
+        report.print()
+        report.save("video_download.log")
         return
     if video_id:
         (conn, cursor) = db.create_or_get_conn()
@@ -386,7 +389,7 @@ def playlists_download(youtube, channel_username, playlist_title):
     cursor.close()
     conn.close()
 
-    report = PlaylistDownloadReport() # created here to establish a start time for the process
+    report = VideoDownloadReport() # created here to establish a start time for the process
     (downloaded_videos, failed_videos) = download_videos(videos_to_download, [], channel_id_name_table)
     report.mark_finished()
     report.add_data_sources(downloaded_videos, failed_videos)

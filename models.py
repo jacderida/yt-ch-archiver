@@ -244,7 +244,7 @@ class SyncReport:
 
         report.append("###############################################")
         report.append("#####                                     #####")
-        report.append("#####               SYNC REPORT           #####")
+        report.append("#####             SYNC REPORT             #####")
         report.append("#####                                     #####")
         report.append("###############################################")
         report.append("Started: " + str(self.start_time))
@@ -260,8 +260,11 @@ class SyncReport:
             report.append(f"{small_banner}")
             report.append(f"{channel}")
             report.append(f"{small_banner}")
-            for video in videos:
-                report.append(f"{video.id}: {video.title}")
+            if len(videos) > 0:
+                for video in videos:
+                    report.append(f"{video.id}: {video.title}")
+            else:
+                report.append("No videos downloaded")
 
         report.append("\n############################")
         report.append("###### FAILED VIDEOS #######")
@@ -273,8 +276,11 @@ class SyncReport:
             report.append(f"{small_banner}")
             report.append(f"{channel}")
             report.append(f"{small_banner}")
-            for video in videos:
-                report.append(f"{video.id}: {video.title} -- {video.download_error}")
+            if len(videos) > 0:
+                for video in videos:
+                    report.append(f"{video.id}: {video.title} -- {video.download_error}")
+            else:
+                report.append("No failed downloads")
         return "\n".join(report)
 
     def print(self):
@@ -407,7 +413,7 @@ class VideoListSpreadsheet():
         workbook.save(file_path)
 
 
-class PlaylistDownloadReport:
+class VideoDownloadReport:
     def __init__(self):
         self.start_time = datetime.now()
         self.videos_downloaded = []
@@ -417,9 +423,10 @@ class PlaylistDownloadReport:
     def _generate_report(self):
         report = []
 
+        report.append("\n")
         report.append("###############################################")
         report.append("#####                                     #####")
-        report.append("#####      PLAYLIST DOWNLOAD REPORT       #####")
+        report.append("#####        VIDEO DOWNLOAD REPORT        #####")
         report.append("#####                                     #####")
         report.append("###############################################")
         report.append("Started: " + str(self.start_time))
@@ -428,15 +435,20 @@ class PlaylistDownloadReport:
         report.append("\n################################")
         report.append("###### DOWNLOADED VIDEOS #######")
         report.append("################################")
-        for video in self.videos_downloaded:
-            report.append(f"{video.id}: {video.title}")
+        if len(self.videos_downloaded) > 0:
+            for video in self.videos_downloaded:
+                report.append(f"{video.id}: {video.title}")
+        else:
+            report.append("No videos downloaded")
 
+        report.append("\n############################")
+        report.append("###### FAILED VIDEOS #######")
+        report.append("############################")
         if len(self.failed_downloads) > 0:
-            report.append("\n############################")
-            report.append("###### FAILED VIDEOS #######")
-            report.append("############################")
             for video in self.failed_downloads:
                 report.append(f"{video.id}: {video.title} -- {video.download_error}")
+        else:
+            report.append("No failed downloads")
         return "\n".join(report)
 
     def add_data_sources(self, videos_downloaded, failed_downloads):
