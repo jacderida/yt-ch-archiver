@@ -27,7 +27,7 @@ def print_video(video_id, title, is_unlisted, is_private, is_external, is_downlo
     theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
     console = Console(highlighter=WordHighlighter(), theme=theme)
     msg = f"{video_id}: {title}"
-    if is_unlisted or is_private:
+    if is_unlisted or is_private or is_external:
         msg += " ["
         if is_unlisted:
             msg += "UNLISTED, "
@@ -185,26 +185,25 @@ class Playlist:
             self.is_external = True if is_external == 1 else False
             self.is_deleted = True if is_deleted == 1 else False
 
-        def print(self):
-            theme = Theme({"hl.word_unlisted": "blue", "hl.word_external": "yellow"})
-            console = Console(highlighter=WordHighlighter(), theme=theme)
-            if self.is_private:
-                console.print(f"{self.title}", style="red")
-            elif self.is_deleted:
-                console.print(f"{self.title}", style="red")
-            elif self.is_unlisted:
-                console.print(f"{self.title} [UNLISTED]")
-            elif self.is_external:
-                console.print(f"{self.title} [EXTERNAL]")
+        def print(self, video):
+            if video:
+                is_downloaded = True if video.saved_path else False
             else:
-                console.print(f"{self.title}")
+                is_downloaded = False
+            print_video(
+                self.video_id,
+                self.title,
+                self.is_unlisted,
+                self.is_private,
+                self.is_external,
+                is_downloaded)
 
     def print_title(self):
         header = f"{self.title} ({len(self.items)} items)"
         console = Console()
-        console.print(Text("=" * len(header), style="green"))
-        console.print(f"{header}", style="green")
-        console.print(Text("=" * len(header), style="green"))
+        console.print(Text("=" * len(header), style="cyan"))
+        console.print(f"{header}", style="cyan")
+        console.print(Text("=" * len(header), style="cyan"))
 
     def add_item(
         self,

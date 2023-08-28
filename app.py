@@ -130,6 +130,15 @@ def main():
             cmds.channels_sync(youtube, args.channel_names)
         if args.channels_command == "update":
             cmds.channels_update(youtube, args.channel_usernames)
+    elif args.command_group == "playlists":
+        if args.playlists_command == "download":
+            raise Exception("Not implemented yet")
+        elif args.playlists_command == "get":
+            cmds.playlists_get(youtube, args.channel_name)
+        elif args.playlists_command == "ls":
+            cmds.playlists_ls(args.channel_name, args.add_unlisted, args.add_external)
+        elif args.playlists_command == "delete":
+            cmds.playlists_delete(args.channel_name)
     elif args.command_group == "videos":
         if args.videos_command == "download":
             skip_ids = []
@@ -140,15 +149,6 @@ def main():
             cmds.videos_get(youtube, args.channel_name)
         elif args.videos_command == "ls":
             cmds.videos_ls(args.channel_name, args.not_downloaded, args.xls)
-    elif args.command_group == "playlists":
-        if args.playlists_command == "download":
-            raise Exception("Not implemented yet")
-        elif args.playlists_command == "get":
-            cmds.playlists_get(youtube, args.channel_name)
-        elif args.playlists_command == "ls":
-            cmds.playlists_ls(args.channel_name, args.add_unlisted, args.add_external)
-        elif args.playlists_command == "delete":
-            cmds.playlists_delete(args.channel_name)
     return 0
 
 

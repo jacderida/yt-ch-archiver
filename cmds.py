@@ -303,7 +303,8 @@ def playlists_ls(channel_name, add_unlisted, add_external):
         db.get_playlist_items(cursor, playlist)
         playlist.print_title()
         for item in playlist.items:
-            item.print()
+            video = db.get_video_by_id(cursor, item.video_id)
+            item.print(video)
             if add_unlisted:
                 if item.is_unlisted and not item.is_private and not item.is_deleted:
                     db.save_video(cursor, Video.from_playlist_item(item))
