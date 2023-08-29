@@ -1,6 +1,7 @@
 import db
 import glob
 import os
+import urllib.parse
 import yt
 import yt_dlp
 
@@ -229,7 +230,7 @@ def channels_update(youtube, channel_names):
 #
 # Video Commands
 #
-def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted):
+def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted, path):
     if channel_username:
         report = VideoDownloadReport() # created here to establish a start time for the process
         (downloaded_videos, failed_videos) = download_videos_for_channel(channel_username, skip_ids)
@@ -237,8 +238,7 @@ def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted
         report.add_data_sources(downloaded_videos, failed_videos)
         report.print()
         report.save("video_download.log")
-        return
-    if video_id:
+    elif video_id:
         (conn, cursor) = db.create_or_get_conn()
         try:
             video = db.get_video_by_id(cursor, video_id)
@@ -264,6 +264,31 @@ def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted
             conn.commit()
             cursor.close()
             conn.close()
+    elif path:
+        video_ids = []
+
+        with open(path, "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            line = line.strip()
+            parsed_url = urllib.parse.urlparse(line)
+            query_params = urllib.parse.parse_qs(parsed_url.query)
+            if "v" in query_params:
+                video_id = query_params["v"][0]
+                video_ids.append(video_id)
+
+        (conn, cursor) = db.create_or_get_conn()
+        videos_to_download = []
+        for video_id in video_ids:
+            add_video_to_download_list_or_ignore(youtube, cursor, video_id, videos_to_download)
+
+        # Videos in this file can relate to any channel, so we need the whole channel table.
+        channel_id_name_table = db.get_channels(cursor)
+        conn.commit()
+        cursor.close()
+        conn.close()
+        download_videos_for_multiple_channels(
+            videos_to_download, channel_id_name_table, "path_download.log")
 
 
 def videos_get(youtube, channel_name):
@@ -359,42 +384,18 @@ def playlists_download(youtube, channel_username, playlist_title):
     for playlist in playlists:
         db.get_playlist_items(cursor, playlist)
         for item in playlist.items:
-            video = db.get_video_by_id(cursor, item.video_id)
-            if video:
-                if not video.saved_path:
-                    print(f"Adding video with ID {video.id} to download list")
-                    videos_to_download.append(video)
-                else:
-                    # Even though the video has a saved path set, it could be possible
-                    # that it was deleted unintentionally, so check that it actually
-                    # has been saved. If it hasn't, it will be downloaded again.
-                    if not os.path.exists(video.saved_path):
-                        print(f"Adding video with ID {video.id} to download list")
-                        videos_to_download.append(video)
-                    else:
-                        print(f"Video with ID {video.id} has already been downloaded")
-            else:
-                print(f"Video with ID {item.video_id} was not in the cache")
-                (video, _) = yt.get_video(youtube, cursor, item.video_id)
-                db.save_video(cursor, video)
-                conn.commit()
-                print(f"Adding video with ID {video.id} to download list")
-                videos_to_download.append(video)
+            add_video_to_download_list_or_ignore(youtube, cursor, item.video_id, videos_to_download)
     # Playlists can have items which are videos that are external to the
     # channel where the playlist is defined. Therefore, the entire channel list
     # needs to be retrieved to be passed to the video downloading function,
     # which needs the channel username to save the video to the correct
     # location.
     channel_id_name_table = db.get_channels(cursor)
+    conn.commit()
     cursor.close()
     conn.close()
-
-    report = VideoDownloadReport() # created here to establish a start time for the process
-    (downloaded_videos, failed_videos) = download_videos(videos_to_download, [], channel_id_name_table)
-    report.mark_finished()
-    report.add_data_sources(downloaded_videos, failed_videos)
-    report.print()
-    report.save("playlist_download.log")
+    download_videos_for_multiple_channels(
+        videos_to_download, channel_id_name_table, "playlist_download.log")
 
 
 #
@@ -577,3 +578,36 @@ def get_channel_download_path(channel_username):
         )
     download_path = os.path.join(download_root_path, channel_username)
     return Path(download_path)
+
+
+def add_video_to_download_list_or_ignore(youtube, cursor, video_id, videos_to_download):
+    video = db.get_video_by_id(cursor, video_id)
+    if video:
+        if not video.saved_path:
+            print(f"Adding video with ID {video.id} to download list")
+            videos_to_download.append(video)
+        else:
+            # Even though the video has a saved path set, it could be possible
+            # that it was deleted unintentionally, so check that it actually
+            # has been saved. If it hasn't, it will be downloaded again.
+            if not os.path.exists(video.saved_path):
+                print(f"Adding video with ID {video.id} to download list")
+                videos_to_download.append(video)
+            else:
+                print(f"Video with ID {video.id} has already been downloaded")
+    else:
+        print(f"Video with ID {video_id} was not in the cache")
+        (video, channel) = yt.get_video(youtube, cursor, video_id)
+        db.save_video(cursor, video)
+        db.save_channel_details(cursor, channel)
+        print(f"Adding video with ID {video.id} to download list")
+        videos_to_download.append(video)
+
+
+def download_videos_for_multiple_channels(videos_to_download, channel_id_name_table, report_file_name):
+    report = VideoDownloadReport() # created here to establish a start time for the process
+    (downloaded_videos, failed_videos) = download_videos(videos_to_download, [], channel_id_name_table)
+    report.mark_finished()
+    report.add_data_sources(downloaded_videos, failed_videos)
+    report.print()
+    report.save(report_file_name)

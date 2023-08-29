@@ -51,6 +51,8 @@ def get_args():
     download_parser.add_argument(
         "--channel-username", help="Download all videos for the given channel")
     download_parser.add_argument(
+        "--path", help="Download all links in the given text file")
+    download_parser.add_argument(
         "--mark-unlisted",
         action="store_true",
         help="Mark the video unlisted. The YouTube Data API does not contain that information.")
@@ -145,7 +147,8 @@ def main():
             skip_ids = []
             if args.skip_ids:
                 skip_ids = args.skip_ids.split(",")
-            cmds.videos_download(youtube, args.channel_username, skip_ids, args.video_id, False)
+            cmds.videos_download(
+                youtube, args.channel_username, skip_ids, args.video_id, False, args.path)
         elif args.videos_command == "get":
             cmds.videos_get(youtube, args.channel_name)
         elif args.videos_command == "ls":
