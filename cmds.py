@@ -249,17 +249,19 @@ def videos_download(youtube, channel_username, skip_ids, video_id, mark_unlisted
                     print(f"Saved to: {video.saved_path}")
                     return
                 else:
+                    print(f"Video {video_id} was already in the cache but has not been saved")
                     channel = db.get_channel_by_id(cursor, video.channel_id)
                     if not channel:
                         raise Exception(f"Channel with ID {video.channel_id} is not in the cache")
-                    download_videos([video], [], { channel.id: channel_username })
+                    print(f"Video relates to channel {channel.username} with ID {channel.id}")
+                    download_videos([video], [], { channel.id: channel.username })
             else:
                 (video, channel) = yt.get_video(youtube, cursor, video_id)
                 if mark_unlisted:
                     video.is_unlisted = True
                 db.save_channel_details(cursor, channel)
                 db.save_video(cursor, video)
-                download_videos([video], [], { channel.id: channel_username })
+                download_videos([video], [], { channel.id: channel.username })
         finally:
             conn.commit()
             cursor.close()
