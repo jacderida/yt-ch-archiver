@@ -1,6 +1,7 @@
 import os
 import sqlite3
 
+from io import BytesIO
 from models import Channel, Playlist, Video
 
 
@@ -140,6 +141,9 @@ def save_channel(cursor, id, username):
 
 
 def save_channel_details(cursor, channel):
+    if not channel.small_thumbnail or not channel.medium_thumbnail or not channel.large_thumbnail:
+        raise Exception("Thumbnails must be provided for saving channel details")
+
     cursor.execute(
         """
     INSERT OR IGNORE INTO channels (
@@ -153,9 +157,9 @@ def save_channel_details(cursor, channel):
             channel.published_at,
             channel.title,
             channel.description,
-            channel.large_thumbnail.tobytes(),
-            channel.medium_thumbnail.tobytes(),
-            channel.small_thumbnail.tobytes(),
+            save_thumbnail_as_png_byte_array(channel.large_thumbnail),
+            save_thumbnail_as_png_byte_array(channel.medium_thumbnail),
+            save_thumbnail_as_png_byte_array(channel.small_thumbnail),
         ),
     )
 
@@ -292,11 +296,14 @@ def get_channel_name_from_id(cursor, channel_id):
 
 def get_channel_by_id(cursor, channel_id):
     cursor.execute(
-        "SELECT id, username, published_at, title, description FROM channels WHERE id = ?",
+        """
+        SELECT id, username, published_at, title, description,
+        small_thumbnail, medium_thumbnail, large_thumbnail FROM channels WHERE id = ?
+        """,
         (channel_id,))
     result = cursor.fetchone()
     if result:
-        return Channel(result[0], result[1], result[2], result[3], result[4])
+        return Channel.from_row(result)
     return None
 
 
@@ -415,3 +422,9 @@ def delete_playlists(cursor, channel_id):
         "DELETE FROM playlists WHERE channel_id = ?",
         (channel_id,),
     )
+
+
+def save_thumbnail_as_png_byte_array(thumbnail_image):
+    byte_io = BytesIO()
+    thumbnail_image.save(byte_io, "PNG")
+    return byte_io.getvalue()

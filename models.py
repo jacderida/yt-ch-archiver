@@ -74,6 +74,14 @@ class Channel:
         if thumb_type == ChannelThumbnailType.SMALL:
             self.small_thumbnail = PilImage.open(BytesIO(image_bytes))
 
+    def add_thumbnail(self, thumb_type, image_bytes):
+        if thumb_type == ChannelThumbnailType.LARGE:
+            self.large_thumbnail = PilImage.open(BytesIO(image_bytes))
+        if thumb_type == ChannelThumbnailType.MEDIUM:
+            self.medium_thumbnail = PilImage.open(BytesIO(image_bytes))
+        if thumb_type == ChannelThumbnailType.SMALL:
+            self.small_thumbnail = PilImage.open(BytesIO(image_bytes))
+
     @staticmethod
     def from_channel_response_item(item):
         channel_id = item["id"]
@@ -96,7 +104,14 @@ class Channel:
 
     @staticmethod
     def from_row(row):
-        return Channel(row[0], row[1], row[2], row[3], row[4])
+        channel = Channel(row[0], row[1], row[2], row[3], row[4])
+        if row[5]:
+            channel.add_thumbnail(ChannelThumbnailType.SMALL, row[5])
+        if row[6]:
+            channel.add_thumbnail(ChannelThumbnailType.MEDIUM, row[6])
+        if row[7]:
+            channel.add_thumbnail(ChannelThumbnailType.LARGE, row[7])
+        return channel
 
 
 class Video:
