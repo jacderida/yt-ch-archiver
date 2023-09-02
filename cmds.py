@@ -50,6 +50,16 @@ def admin_build_thumbnails(channel_name):
                 create_thumbnail(input_path, output_path)
 
 
+def admin_remove_channel_images():
+    (conn, cursor) = db.create_or_get_conn()
+    print("Removing all image data from all channels. This can take several minutes.")
+    db.delete_all_channel_images(cursor)
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("All channel images removed from cache")
+
+
 def admin_update_video_info(channel_name):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_username(cursor, channel_name)
@@ -162,6 +172,25 @@ def channels_get(youtube, channel_username):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+def channels_info(username, id):
+    (conn, cursor) = db.create_or_get_conn()
+    if id:
+        channel = db.get_channel_by_id(cursor, id)
+        if not channel:
+            raise Exception(f"Channel with ID {id} is not in the cache")
+    elif username:
+        channel = db.get_channel_by_username(cursor, username)
+        if not channel:
+            raise Exception(f"Channel with username {username} is not in the cache")
+    else:
+        raise Exception("Either the --id or --username arguments must be supplied")
+    cursor.close()
+    conn.close()
+    print(f"ID: {channel.id}")
+    print(f"Username: {channel.username}")
+    print(f"Title: {channel.title}")
 
 
 def channels_ls():

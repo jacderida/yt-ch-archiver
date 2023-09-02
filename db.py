@@ -178,9 +178,9 @@ def save_updated_channel_details(cursor, channel):
             channel.published_at,
             channel.title,
             channel.description,
-            channel.large_thumbnail.tobytes(),
-            channel.medium_thumbnail.tobytes(),
-            channel.small_thumbnail.tobytes(),
+            save_thumbnail_as_png_byte_array(channel.large_thumbnail),
+            save_thumbnail_as_png_byte_array(channel.medium_thumbnail),
+            save_thumbnail_as_png_byte_array(channel.small_thumbnail),
             channel.id,
         ),
     )
@@ -303,7 +303,20 @@ def get_channel_by_id(cursor, channel_id):
         (channel_id,))
     result = cursor.fetchone()
     if result:
-        return Channel.from_row(result)
+        return Channel.from_row_with_image_data(result)
+    return None
+
+
+def get_channel_by_username(cursor, username):
+    cursor.execute(
+        """
+        SELECT id, username, published_at, title, description,
+        small_thumbnail, medium_thumbnail, large_thumbnail FROM channels WHERE username = ?
+        """,
+        (username,))
+    result = cursor.fetchone()
+    if result:
+        return Channel.from_row_with_image_data(result)
     return None
 
 
@@ -421,6 +434,15 @@ def delete_playlists(cursor, channel_id):
     cursor.execute(
         "DELETE FROM playlists WHERE channel_id = ?",
         (channel_id,),
+    )
+
+
+def delete_all_channel_images(cursor):
+    cursor.execute(
+        """
+        UPDATE channels
+        SET large_thumbnail = NULL, medium_thumbnail = NULL, small_thumbnail = NULL
+        """
     )
 
 

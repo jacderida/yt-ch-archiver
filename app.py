@@ -20,6 +20,9 @@ def get_args():
         help="Build thumbnails for videos that have already been retrieved").add_argument(
             "channel_name", help="The name of the channel")
     admin_subparser.add_parser(
+        "remove-channel-images",
+        help="Remove all saved images for channels.")
+    admin_subparser.add_parser(
         "update-video-root-path",
         help="Update the root path of all saved videos. Use if you changed the path.")
     admin_subparser.add_parser(
@@ -36,6 +39,9 @@ def get_args():
         "channel_name", help="The name of the channel")
     channels_subparser.add_parser("get", help="Get the channel details from YouTube").add_argument(
         "channel_username", help="The username of the channel")
+    channel_info_parser = channels_subparser.add_parser("info", help="Display cached channel details")
+    channel_info_parser.add_argument("--username", help="The username for the channel")
+    channel_info_parser.add_argument("--id", help="The id for the channel")
     channels_subparser.add_parser("ls", help="List all the channels in the cache")
     channels_subparser.add_parser(
         "report", help="Create a spreadsheet of videos for the given channels").add_argument(
@@ -114,6 +120,8 @@ def main():
     if args.command_group == "admin":
         if args.admin_command == "build-thumbnails":
             cmds.admin_build_thumbnails(args.channel_name)
+        elif args.admin_command == "remove-channel-images":
+            cmds.admin_remove_channel_images()
         elif args.admin_command == "update-video-info":
             cmds.admin_update_video_info(args.channel_name)
         elif args.admin_command == "update-video-root-path":
@@ -125,6 +133,8 @@ def main():
             cmds.channels_generate_index(args.channel_name)
         if args.channels_command == "get":
             cmds.channels_get(youtube, args.channel_username)
+        if args.channels_command == "info":
+            cmds.channels_info(args.username, args.id)
         elif args.channels_command == "ls":
             cmds.channels_ls()
         if args.channels_command == "report":

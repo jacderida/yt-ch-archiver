@@ -104,13 +104,14 @@ class Channel:
 
     @staticmethod
     def from_row(row):
+        return Channel(row[0], row[1], row[2], row[3], row[4])
+
+    @staticmethod
+    def from_row_with_image_data(row):
         channel = Channel(row[0], row[1], row[2], row[3], row[4])
-        if row[5]:
-            channel.add_thumbnail(ChannelThumbnailType.SMALL, row[5])
-        if row[6]:
-            channel.add_thumbnail(ChannelThumbnailType.MEDIUM, row[6])
-        if row[7]:
-            channel.add_thumbnail(ChannelThumbnailType.LARGE, row[7])
+        channel.add_thumbnail(ChannelThumbnailType.SMALL, row[5])
+        channel.add_thumbnail(ChannelThumbnailType.MEDIUM, row[6])
+        channel.add_thumbnail(ChannelThumbnailType.LARGE, row[7])
         return channel
 
 
