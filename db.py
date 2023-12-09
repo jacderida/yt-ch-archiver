@@ -437,6 +437,21 @@ def delete_playlists(cursor, channel_id):
     )
 
 
+def delete_videos(cursor, channel_id):
+    cursor.execute(
+        "DELETE FROM videos WHERE channel_id = ?",
+        (channel_id,),
+    )
+
+
+def delete_channel(cursor, channel_id):
+    cursor.execute(
+        "DELETE FROM channels WHERE id = ?",
+        (channel_id,),
+    )
+
+
+
 def delete_all_channel_images(cursor):
     cursor.execute(
         """

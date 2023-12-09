@@ -35,6 +35,8 @@ def get_args():
 
     channels_parser = subparsers.add_parser("channels", help="Manage channels")
     channels_subparser = channels_parser.add_subparsers(dest="channels_command")
+    channels_subparser.add_parser("delete", help="Remove a channel. The videos and playlists will be cleared from the cache.").add_argument(
+        "channel_username", help="The username of the channel")
     channels_subparser.add_parser("generate-index", help="Generate index for a channel").add_argument(
         "channel_name", help="The name of the channel")
     channels_subparser.add_parser("get", help="Get the channel details from YouTube").add_argument(
@@ -129,6 +131,8 @@ def main():
         elif args.admin_command == "update-video-saved-path":
             cmds.admin_update_video_saved_path()
     elif args.command_group == "channels":
+        if args.channels_command == "delete":
+            cmds.channels_delete(args.channel_username)
         if args.channels_command == "generate-index":
             cmds.channels_generate_index(args.channel_name)
         if args.channels_command == "get":

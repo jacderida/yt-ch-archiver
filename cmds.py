@@ -116,6 +116,34 @@ def admin_update_video_saved_path():
 #
 # Channel Commands
 #
+def channels_delete(channel_username):
+    (conn, cursor) = db.create_or_get_conn()
+    channel_id = db.get_channel_id_from_username(cursor, channel_username)
+    videos = db.get_videos(cursor, channel_id, False)
+
+    print(f"Channel {channel_username} has ID {channel_id}")
+    print(f"This channel has {len(videos)} videos in the cache")
+    user_input = input(f"Are you sure you want to delete? (y/n): ")
+    if user_input.lower() != 'y':
+        print("Channel deletion cancelled")
+        return
+
+    try:
+        conn.execute('BEGIN')
+        channel_id = db.get_channel_id_from_username(cursor, channel_username)
+        db.delete_playlists(cursor, channel_id)
+        db.delete_videos(cursor, channel_id)
+        db.delete_channel(cursor, channel_id)
+        conn.commit()
+        print(f"Channel {channel_username} deleted")
+    except Exception as e:
+        conn.rollback()
+        print(f"An error occurred: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+
+
 def channels_generate_index(channel_name):
     (videos, download_path) = get_videos_for_channel(channel_name)
     print(f"Generating index for {channel_name}...")
@@ -599,9 +627,8 @@ def get_full_video_path(download_path, video_id):
 
 
 def get_channel_download_path(channel_username):
-    if channel_username[0] != '@':
-        raise Exception(f"Channel {channel_username} does not follow the correct username convention")
-    channel_username = channel_username[1:] # strip the @ from the username
+    if channel_username[0] == '@':
+        channel_username = channel_username[1:] # strip the @ from the username
     download_root_path = os.getenv("YT_CH_ARCHIVER_ROOT_PATH")
     if not download_root_path:
         raise Exception(
