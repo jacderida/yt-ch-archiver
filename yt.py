@@ -1,5 +1,5 @@
 import db
-from models import Channel, ChannelThumbnailType, Video, Playlist
+from models import Channel, Video, Playlist
 
 
 def get_channel_info(youtube, channel_username):

@@ -1,7 +1,6 @@
 import os
 import sqlite3
 
-from io import BytesIO
 from models import Channel, Playlist, Video
 
 
@@ -44,9 +43,6 @@ def create_or_get_conn():
     add_new_column(cursor, "channels", "title", "TEXT", "NULL", None)
     add_new_column(cursor, "channels", "description", "TEXT", "NULL", None)
     add_new_column(cursor, "channels", "published_at", "TEXT", "NULL", None)
-    add_new_column(cursor, "channels", "large_thumbnail", "BLOB", "NULL", None)
-    add_new_column(cursor, "channels", "medium_thumbnail", "BLOB", "NULL", None)
-    add_new_column(cursor, "channels", "small_thumbnail", "BLOB", "NULL", None)
 
     cursor.execute(
         """
@@ -141,15 +137,10 @@ def save_channel(cursor, id, username):
 
 
 def save_channel_details(cursor, channel):
-    if not channel.small_thumbnail or not channel.medium_thumbnail or not channel.large_thumbnail:
-        raise Exception("Thumbnails must be provided for saving channel details")
-
     cursor.execute(
         """
-    INSERT OR IGNORE INTO channels (
-        id, username, published_at,
-        title, description, large_thumbnail, medium_thumbnail, small_thumbnail)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO channels (id, username, published_at, title, description)
+    VALUES (?, ?, ?, ?, ?)
     """,
         (
             channel.id,
@@ -157,9 +148,6 @@ def save_channel_details(cursor, channel):
             channel.published_at,
             channel.title,
             channel.description,
-            save_thumbnail_as_png_byte_array(channel.large_thumbnail),
-            save_thumbnail_as_png_byte_array(channel.medium_thumbnail),
-            save_thumbnail_as_png_byte_array(channel.small_thumbnail),
         ),
     )
 
@@ -168,9 +156,7 @@ def save_updated_channel_details(cursor, channel):
     print(f"Saving updated channel information for {channel.title}")
     cursor.execute(
         """
-    UPDATE channels SET
-        username = ?, published_at = ?,
-        title = ?, description = ?, large_thumbnail = ?, medium_thumbnail = ?, small_thumbnail = ?
+    UPDATE channels SET username = ?, published_at = ?, title = ?, description = ?
     WHERE id = ?
     """,
         (
@@ -178,9 +164,6 @@ def save_updated_channel_details(cursor, channel):
             channel.published_at,
             channel.title,
             channel.description,
-            save_thumbnail_as_png_byte_array(channel.large_thumbnail),
-            save_thumbnail_as_png_byte_array(channel.medium_thumbnail),
-            save_thumbnail_as_png_byte_array(channel.small_thumbnail),
             channel.id,
         ),
     )
@@ -297,26 +280,26 @@ def get_channel_name_from_id(cursor, channel_id):
 def get_channel_by_id(cursor, channel_id):
     cursor.execute(
         """
-        SELECT id, username, published_at, title, description,
-        small_thumbnail, medium_thumbnail, large_thumbnail FROM channels WHERE id = ?
+        SELECT id, username, published_at, title, description
+        FROM channels WHERE id = ?
         """,
         (channel_id,))
     result = cursor.fetchone()
     if result:
-        return Channel.from_row_with_image_data(result)
+        return Channel.from_row(result)
     return None
 
 
 def get_channel_by_username(cursor, username):
     cursor.execute(
         """
-        SELECT id, username, published_at, title, description,
-        small_thumbnail, medium_thumbnail, large_thumbnail FROM channels WHERE username = ?
+        SELECT id, username, published_at, title, description
+        FROM channels WHERE username = ?
         """,
         (username,))
     result = cursor.fetchone()
     if result:
-        return Channel.from_row_with_image_data(result)
+        return Channel.from_row(result)
     return None
 
 
@@ -449,19 +432,3 @@ def delete_channel(cursor, channel_id):
         "DELETE FROM channels WHERE id = ?",
         (channel_id,),
     )
-
-
-
-def delete_all_channel_images(cursor):
-    cursor.execute(
-        """
-        UPDATE channels
-        SET large_thumbnail = NULL, medium_thumbnail = NULL, small_thumbnail = NULL
-        """
-    )
-
-
-def save_thumbnail_as_png_byte_array(thumbnail_image):
-    byte_io = BytesIO()
-    thumbnail_image.save(byte_io, "PNG")
-    return byte_io.getvalue()

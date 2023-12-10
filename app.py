@@ -20,9 +20,6 @@ def get_args():
         help="Build thumbnails for videos that have already been retrieved").add_argument(
             "channel_name", help="The name of the channel")
     admin_subparser.add_parser(
-        "remove-channel-images",
-        help="Remove all saved images for channels.")
-    admin_subparser.add_parser(
         "update-video-root-path",
         help="Update the root path of all saved videos. Use if you changed the path.")
     admin_subparser.add_parser(

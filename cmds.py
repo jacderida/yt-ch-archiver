@@ -50,16 +50,6 @@ def admin_build_thumbnails(channel_name):
                 create_thumbnail(input_path, output_path)
 
 
-def admin_remove_channel_images():
-    (conn, cursor) = db.create_or_get_conn()
-    print("Removing all image data from all channels. This can take several minutes.")
-    db.delete_all_channel_images(cursor)
-    conn.commit()
-    cursor.close()
-    conn.close()
-    print("All channel images removed from cache")
-
-
 def admin_update_video_info(channel_name):
     (conn, cursor) = db.create_or_get_conn()
     channel_id = db.get_channel_id_from_username(cursor, channel_name)
@@ -654,12 +644,16 @@ def add_video_to_download_list_or_ignore(youtube, cursor, video_id, videos_to_do
             else:
                 print(f"Video with ID {video.id} has already been downloaded")
     else:
-        print(f"Video with ID {video_id} was not in the cache")
-        (video, channel) = yt.get_video(youtube, cursor, video_id)
-        db.save_video(cursor, video)
-        db.save_channel_details(cursor, channel)
-        print(f"Adding video with ID {video.id} to download list")
-        videos_to_download.append(video)
+        try:
+            print(f"Video with ID {video_id} was not in the cache")
+            (video, channel) = yt.get_video(youtube, cursor, video_id)
+            db.save_video(cursor, video)
+            db.save_channel_details(cursor, channel)
+            print(f"Adding video with ID {video.id} to download list")
+            videos_to_download.append(video)
+        except Exception:
+            print(f"Could not retrieve {video_id}")
+            print(f"It will not be added to the download list")
 
 
 def download_videos_for_multiple_channels(videos_to_download, channel_id_name_table, report_file_name):

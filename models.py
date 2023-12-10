@@ -7,7 +7,6 @@ from datetime import datetime
 from enum import Enum, auto
 from io import BytesIO
 from pathlib import Path
-from PIL import Image as PilImage
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image
 from openpyxl.styles import PatternFill
@@ -43,12 +42,6 @@ def print_video(video_id, title, is_unlisted, is_private, is_external, is_downlo
         console.print(msg, style="red")
 
 
-class ChannelThumbnailType(Enum):
-    LARGE = auto()
-    MEDIUM = auto()
-    SMALL = auto()
-
-
 class Channel:
     def __init__(self, id, username, published_at, title, description):
         self.id = id
@@ -59,28 +52,6 @@ class Channel:
         self.video_count = 0
         self.video_size = ""
         self.video_duration = 0
-        self.large_thumbnail = None
-        self.medium_thumbnail = None
-        self.small_thumbnail = None
-
-    def get_thumbnail(self, url, thumb_type):
-        print(f"Retrieving channel thumbnail from {url}...")
-        response = requests.get(url)
-        image_bytes = response.content
-        if thumb_type == ChannelThumbnailType.LARGE:
-            self.large_thumbnail = PilImage.open(BytesIO(image_bytes))
-        if thumb_type == ChannelThumbnailType.MEDIUM:
-            self.medium_thumbnail = PilImage.open(BytesIO(image_bytes))
-        if thumb_type == ChannelThumbnailType.SMALL:
-            self.small_thumbnail = PilImage.open(BytesIO(image_bytes))
-
-    def add_thumbnail(self, thumb_type, image_bytes):
-        if thumb_type == ChannelThumbnailType.LARGE:
-            self.large_thumbnail = PilImage.open(BytesIO(image_bytes))
-        if thumb_type == ChannelThumbnailType.MEDIUM:
-            self.medium_thumbnail = PilImage.open(BytesIO(image_bytes))
-        if thumb_type == ChannelThumbnailType.SMALL:
-            self.small_thumbnail = PilImage.open(BytesIO(image_bytes))
 
     @staticmethod
     def from_channel_response_item(item):
@@ -93,26 +64,11 @@ class Channel:
         else:
             username = title
         description = snippet["description"]
-        channel = Channel(channel_id, username, published_at, title, description)
-        channel.get_thumbnail(
-            snippet["thumbnails"]["default"]["url"], ChannelThumbnailType.SMALL)
-        channel.get_thumbnail(
-            snippet["thumbnails"]["medium"]["url"], ChannelThumbnailType.MEDIUM)
-        channel.get_thumbnail(
-            snippet["thumbnails"]["high"]["url"], ChannelThumbnailType.LARGE)
-        return channel
+        return Channel(channel_id, username, published_at, title, description)
 
     @staticmethod
     def from_row(row):
         return Channel(row[0], row[1], row[2], row[3], row[4])
-
-    @staticmethod
-    def from_row_with_image_data(row):
-        channel = Channel(row[0], row[1], row[2], row[3], row[4])
-        channel.add_thumbnail(ChannelThumbnailType.SMALL, row[5])
-        channel.add_thumbnail(ChannelThumbnailType.MEDIUM, row[6])
-        channel.add_thumbnail(ChannelThumbnailType.LARGE, row[7])
-        return channel
 
 
 class Video:
